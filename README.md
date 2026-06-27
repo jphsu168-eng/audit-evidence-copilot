@@ -27,16 +27,19 @@ This prototype centralizes those decisions and maintains a visible link between 
 - Documented audit approach, relevant assertions, cutoff window, and population reconciliation.
 - Ten realistic fictional revenue samples selected through random, cutoff, and high-value methods.
 - Search plus combined risk and workflow-status filtering.
-- Four-step workflow guide from sample selection through working-paper generation.
+- Six-step workflow guide from sample selection through manager review.
 - Evidence checklist with PBC state, document references, and assertion mapping.
+- Downloadable client PBC request drafts generated only for missing support.
 - Transparent risk assessment for:
   - Invoice-to-GL amount differences.
   - Revenue recognized before shipment.
   - Missing required evidence, weighted by document relevance.
   - Cash receipts occurring more than 60 days after recognition.
 - Assertion testing matrix for occurrence, accuracy, cutoff, collectibility, and evidence sufficiency.
+- Consolidated sample outcome showing risk, exception status, affected assertions, follow-up, and audit conclusion.
 - Potential misstatement evaluation against the clearly trivial threshold.
 - Manager review prompts that recommend responsive procedures without replacing professional judgment.
+- Manager review workspace with review status, open and resolved comment counts, and manager conclusion.
 - Persistent preparer workflow status using browser `localStorage`.
 - Workflow guardrails that prevent preparer sign-off with missing evidence or unresolved exceptions.
 - Manager-only review status simulation.
@@ -98,6 +101,7 @@ audit-evidence-copilot/
 - The risk engine returns normalized findings with labels, points, and assertion context.
 - A small application state object controls the active sample and combined filters.
 - One sample-view render path controls rows, result counts, empty state, active selection, evidence, risk, and generator availability so the UI cannot present contradictory states.
+- Audit outcome, PBC request, manager review, and working-paper content are derived from the same selected-sample state and exception model.
 - Table interactions use event delegation, avoiding listener re-binding after each render.
 - User-provided search values are never injected into generated markup.
 - Mock text rendered into HTML is escaped defensively.
@@ -109,7 +113,7 @@ audit-evidence-copilot/
 - Local document upload and evidence preview with simulated OCR extraction.
 - Configurable firm methodology, assertions, thresholds, and approval gates.
 - Sampling calculator with population stratification and projection of errors.
-- Exception resolution notes, proposed adjustment tracking, and reviewer comments.
+- Editable exception disposition notes and proposed adjustment tracking.
 - Cross-sample analytics for customer concentration and cutoff trends.
 - Immutable activity log and preparer/reviewer timestamps.
 - WCAG audit with automated regression coverage.
@@ -127,6 +131,13 @@ This project demonstrates product design and front-end engineering in a speciali
 - Why differences below the clearly trivial threshold still require qualitative evaluation.
 - How preparer and reviewer guardrails improve documentation quality and review efficiency.
 - How the design maintains traceability from source evidence to assertion result and conclusion.
+
+## Suggested Demo Walkthrough
+
+1. Start on `REV-001` to demonstrate a complete, low-risk sample.
+2. Select `REV-004` to show missing sales contract and cash receipt support, then generate its PBC request.
+3. Select `REV-007` to demonstrate a $5,000 invoice-to-GL difference, cutoff exception, 100/100 risk score, affected assertions, and manager review points.
+4. Generate the `REV-007` working paper and show how the evidence, exceptions, assertion impact, conclusion, preparer, reviewer, and review status trace back to the selected transaction.
 
 ## Legal Disclaimer
 

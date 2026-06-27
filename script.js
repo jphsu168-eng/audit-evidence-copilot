@@ -21,7 +21,7 @@
     arrow: '<svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>'
   });
   const riskColors = Object.freeze({ High: "#b7373f", Medium: "#c17a18", Low: "#27906a" });
-  const state = { selectedId: null, riskFilter: "All", statusFilter: "All", searchTerm: "", paperSampleId: null };
+  const state = { selectedId: null, riskFilter: "All", statusFilter: "All", searchTerm: "", paperSampleId: null, pbcSampleId: null, pbcText: "" };
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
 
@@ -118,6 +118,52 @@
     ];
   }
 
+  function auditOutcome(sample) {
+    const assertions = assertionResults(sample);
+    const affectedAssertions = assertions.filter(item => item.status !== "Pass").map(item => item.name);
+    const followUp = [];
+    if (sample.risk.missing.length) followUp.push(`Obtain ${sample.risk.missing.map(item => item.label.toLowerCase()).join(" and ")} through a PBC request or perform an alternative procedure.`);
+    if (sample.risk.cutoffDays > 0) followUp.push("Evaluate the cutoff exception and consider extending testing around year-end.");
+    if (sample.risk.difference) followUp.push("Reconcile the invoice-to-GL difference and document its disposition.");
+    if (sample.risk.receiptDays > riskRules.delayedCashDays) followUp.push("Corroborate collectibility and evaluate the delayed receipt.");
+
+    const conclusion = sample.risk.level === "High"
+      ? "Exceptions affect relevant assertions. Further audit procedures and engagement-team evaluation are required before this sample can be concluded."
+      : sample.risk.findings.length
+        ? "One or more exceptions require documented follow-up. The sample remains open until the evidence and exception disposition are complete."
+        : "The transaction is supported, agrees to the general ledger, and was recognized in the appropriate period. No exceptions were identified."
+    return {
+      assertions,
+      affectedAssertions,
+      exceptionStatus: sample.risk.findings.length ? `${sample.risk.findings.length} open exception${sample.risk.findings.length === 1 ? "" : "s"}` : "No exceptions",
+      followUp: followUp.length ? followUp.join(" ") : "No additional follow-up required; route the completed sample for review.",
+      conclusion
+    };
+  }
+
+  function managerReviewSummary(sample, outcome = auditOutcome(sample)) {
+    const comments = [];
+    if (sample.risk.cutoffDays > 0) comments.push("Confirm the cutoff exception disposition and whether extended year-end testing was performed.");
+    if (sample.risk.difference) comments.push("Document the cause and classification of the invoice-to-GL difference.");
+    if (sample.risk.missing.length) comments.push("Clear outstanding PBC evidence or cross-reference the alternative audit procedure.");
+    if (sample.risk.receiptDays > riskRules.delayedCashDays) comments.push("Conclude on the collectibility implications of the delayed receipt.");
+
+    const reviewed = sample.workflowStatus === "Reviewed";
+    const ready = sample.workflowStatus === "Prepared" && !sample.risk.findings.length;
+    return {
+      status: reviewed ? "Review complete" : ready ? "Ready for manager review" : comments.length ? "Review points open" : "Preparer work in progress",
+      openComments: reviewed ? [] : comments,
+      resolvedComments: reviewed ? Math.max(comments.length, 1) : ready ? 1 : 0,
+      conclusion: reviewed
+        ? "Manager review is complete. The documentation supports the sample conclusion and no review points remain open."
+        : comments.length
+          ? `Manager conclusion is pending resolution of ${comments.length} review point${comments.length === 1 ? "" : "s"}. ${outcome.conclusion}`
+          : ready
+            ? "The sample is ready for manager review and sign-off."
+            : "Complete preparer documentation and route the sample for manager review."
+    };
+  }
+
   function renderDashboard() {
     const totalValue = samples.reduce((total, sample) => total + sample.invoiceAmount, 0);
     const grossDifferences = samples.reduce((total, sample) => total + Math.abs(sample.risk.difference), 0);
@@ -176,7 +222,10 @@
     const previousId = state.selectedId;
     if (!rows.length) state.selectedId = null;
     else if (!rows.some(sample => sample.id === state.selectedId)) state.selectedId = rows[0].id;
-    if (previousId !== state.selectedId) invalidateWorkingPaper();
+    if (previousId !== state.selectedId) {
+      invalidateWorkingPaper();
+      invalidatePbcRequest();
+    }
     return rows.find(sample => sample.id === state.selectedId) || null;
   }
 
@@ -187,10 +236,18 @@
     state.paperSampleId = null;
   }
 
+  function invalidatePbcRequest() {
+    if (!state.pbcSampleId) return;
+    $("#pbcRequestPanel").hidden = true;
+    state.pbcSampleId = null;
+    state.pbcText = "";
+  }
+
   function setWorkingPaperAvailability(enabled) {
     ["#generatePaperButton", "#generatePlaceholderButton", "#generateFromDetail"].forEach(selector => {
       $(selector).disabled = !enabled;
     });
+    if (!enabled) $("#generatePbcButton").disabled = true;
   }
 
   function renderSamplesView() {
@@ -206,6 +263,7 @@
         <td class="currency ${sample.risk.difference ? "amount-difference" : ""}">${money(sample.glAmount)}</td>
         <td class="date-cell">${shortDate(sample.recognitionDate)}<span>Ship ${shortDate(sample.shippingDate)}</span></td>
         <td><span class="evidence-count ${sample.risk.missing.length ? "missing" : ""}">${sample.risk.missing.length ? icons.missing : icons.check}${availableEvidence}/${totalEvidence}</span></td>
+        <td><span class="exception-badge ${sample.risk.findings.length ? "open" : ""}">${sample.risk.findings.length ? `${sample.risk.findings.length} open` : "Clear"}</span></td>
         <td><span class="workflow-badge ${slugify(sample.workflowStatus)}">${escapeHtml(sample.workflowStatus)}</span></td>
         <td><span class="risk-badge ${sample.risk.level.toLowerCase()}">${sample.risk.level}<span class="risk-score">${sample.risk.score}</span></span></td>
         <td><span class="row-action">${icons.arrow}</span></td>
@@ -222,6 +280,8 @@
 
   function renderDetail(sample) {
     const { risk } = sample;
+    const outcome = auditOutcome(sample);
+    const review = managerReviewSummary(sample, outcome);
     $("#detailTitle").textContent = `${sample.id} · ${sample.customer}`;
     $("#detailSubtitle").textContent = `${sample.invoice} · ${money(sample.invoiceAmount)} · Owner ${sample.owner}`;
     $("#selectionBasis").textContent = `Selection basis: ${sample.selectionBasis}`;
@@ -273,7 +333,30 @@
       ? `<strong>Preparer action:</strong> Obtain ${risk.missing.map(item => item.label.toLowerCase()).join(" and ")} before final sign-off.`
       : "<strong>Evidence ready:</strong> The required package is complete and available for reviewer inspection.";
 
-    $("#assertionMatrix").innerHTML = assertionResults(sample).map(item => `<article class="assertion-item"><small>${item.category}</small><div class="assertion-item-header"><h3>${item.name}</h3><span class="result-badge ${item.status.toLowerCase()}">${item.status}</span></div><p><strong>${item.procedure}</strong><br>${item.rationale}</p></article>`).join("");
+    const pbcButton = $("#generatePbcButton");
+    pbcButton.disabled = risk.missing.length === 0;
+    pbcButton.textContent = risk.missing.length ? `Generate PBC request (${risk.missing.length})` : "Evidence complete · No PBC required";
+    if (state.pbcSampleId !== sample.id) $("#pbcRequestPanel").hidden = true;
+
+    $("#assertionMatrix").innerHTML = outcome.assertions.map(item => `<article class="assertion-item"><small>${item.category}</small><div class="assertion-item-header"><h3>${item.name}</h3><span class="result-badge ${item.status.toLowerCase()}">${item.status}</span></div><p><strong>${item.procedure}</strong><br>${item.rationale}</p></article>`).join("");
+    $("#outcomeStatusBadge").className = `workflow-badge ${risk.findings.length ? "exception" : "reviewed"}`;
+    $("#outcomeStatusBadge").textContent = risk.findings.length ? "Follow-up required" : "Testing complete";
+    $("#auditOutcomeGrid").innerHTML = [
+      ["Risk score", `${risk.score}/100`, "Rules-based prioritization"],
+      ["Risk level", risk.level, `${risk.level} audit attention`],
+      ["Exception status", outcome.exceptionStatus, risk.findings.length ? "Unresolved" : "Clear"],
+      ["Assertions affected", outcome.affectedAssertions.join(" · ") || "None", outcome.affectedAssertions.length ? "Impact identified" : "No impact"],
+      ["Follow-up required", risk.findings.length ? "Yes" : "No", outcome.followUp]
+    ].map(([label, value, detail]) => `<div class="outcome-item"><small>${label}</small><strong>${escapeHtml(value)}</strong><span>${escapeHtml(detail)}</span></div>`).join("");
+    $("#auditConclusion").innerHTML = `<strong>Audit conclusion:</strong> ${escapeHtml(outcome.conclusion)}`;
+
+    $("#managerReviewStatus").textContent = review.status;
+    $("#managerOpenCount").textContent = review.openComments.length;
+    $("#managerResolvedCount").textContent = review.resolvedComments;
+    $("#managerReviewComments").innerHTML = review.openComments.length
+      ? review.openComments.map((comment, index) => `<div class="review-comment"><span class="comment-index">${index + 1}</span><p>${escapeHtml(comment)}</p><span>Open</span></div>`).join("")
+      : '<div class="review-empty">No open manager review comments.</div>';
+    $("#managerConclusion").textContent = review.conclusion;
   }
 
   function setWorkflowStatus(nextStatus) {
@@ -305,32 +388,82 @@
     showToast(`${sample.id} moved to ${nextStatus}.`);
   }
 
+  function buildPbcText(sample) {
+    const missing = sample.risk.missing;
+    return [
+      `PBC Request: PBC-${sample.id}-01`,
+      `Client: ${engagement.client}`,
+      `Sample: ${sample.id} | ${sample.customer} | ${sample.invoice}`,
+      "",
+      "Requested support:",
+      ...missing.map(item => `- ${item.label} (${item.assertion})`),
+      "",
+      `Audit purpose: Obtain sufficient appropriate audit evidence for ${[...new Set(missing.map(item => item.assertion))].join(", ")}.`,
+      "Requested response: Upload the requested support and identify the preparer within 3 business days.",
+      "",
+      "Educational prototype — not sent to a client."
+    ].join("\r\n");
+  }
+
+  function generatePbcRequest(sample) {
+    if (!sample) {
+      showToast("Select a sample before generating a PBC request.");
+      return;
+    }
+    if (!sample.risk.missing.length) {
+      showToast(`${sample.id} has a complete evidence package; no PBC request is required.`);
+      return;
+    }
+    const assertions = [...new Set(sample.risk.missing.map(item => item.assertion))];
+    $("#pbcRequestId").textContent = `PBC-${sample.id}-01`;
+    $("#pbcRequestCustomer").textContent = `${engagement.client} · ${sample.customer} · ${sample.invoice}`;
+    $("#pbcRequestItems").innerHTML = sample.risk.missing.map(item => `<span class="pbc-document">${escapeHtml(item.label)}</span>`).join("");
+    $("#pbcRequestPurpose").textContent = `Obtain sufficient appropriate audit evidence for ${assertions.join(", ")}.`;
+    $("#pbcRequestPanel").hidden = false;
+    state.pbcSampleId = sample.id;
+    state.pbcText = buildPbcText(sample);
+    $("#pbcRequestPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+    showToast(`PBC request drafted for ${sample.id}.`);
+  }
+
+  function downloadPbcRequest() {
+    const sample = selectedSample();
+    if (!sample || state.pbcSampleId !== sample.id || !state.pbcText) {
+      showToast("Generate a PBC request before downloading the draft.");
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([state.pbcText], { type: "text/plain;charset=utf-8" }));
+    const link = Object.assign(document.createElement("a"), { href: url, download: `PBC-${sample.id}-01.txt` });
+    document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+    showToast(`PBC draft downloaded for ${sample.id}.`);
+  }
+
   function generateWorkingPaper(sample) {
     if (!sample) {
       showToast("Select a sample before generating a working paper.");
       return;
     }
     const { risk } = sample;
-    const assertions = assertionResults(sample);
+    const outcome = auditOutcome(sample);
+    const review = managerReviewSummary(sample, outcome);
+    const assertions = outcome.assertions;
     const evidenceReviewed = Object.entries(sample.evidence).filter(([, available]) => available).map(([key]) => evidenceMeta[key].label);
     const exceptionItems = risk.findings.length
       ? risk.findings.map(item => `<li><strong>${escapeHtml(item.label)}:</strong> ${escapeHtml(item.detail)}</li>`).join("")
       : "<li>No exceptions were identified from the procedures performed.</li>";
-    const conclusion = risk.level === "High"
-      ? "The sample contains exceptions affecting one or more relevant assertions. Additional evidence, exception resolution, and engagement team evaluation are required before a conclusion can be reached. Consider whether the findings indicate a proposed adjustment or broader population risk."
-      : risk.level === "Medium"
-        ? "The procedures identified matters requiring follow-up. No pervasive issue has been concluded; however, the open items must be resolved and documented before preparer sign-off."
-        : "Based on the procedures performed and evidence obtained, the transaction was recorded accurately and in the appropriate period. No exceptions were identified for this sample.";
     const sections = [
       ["Objective", "To determine whether the selected revenue transaction occurred, was accurately recorded, was recognized in the appropriate reporting period, and is supported by sufficient appropriate audit evidence."],
       ["Risk and audit response", `${engagement.significantRisk}. The engagement team adopted a ${engagement.auditApproach.toLowerCase()} approach focused on the occurrence, cutoff, and accuracy assertions, including targeted year-end testing.`],
       ["Population and selection", `${engagement.populationSource} was reconciled to the trial balance and general ledger. ${sample.id} was selected using ${sample.selectionBasis.toLowerCase()} from ${engagement.populationCount.toLocaleString("en-US")} transactions totaling ${money(engagement.populationValue)}.`],
-      ["Procedure performed", `Agreed invoice ${sample.invoice} to the general ledger, inspected available contractual and shipping support, compared the recognition date with the shipping date for cutoff, and inspected the subsequent cash receipt. Evaluated occurrence, accuracy, cutoff, collectibility, and evidence sufficiency.`],
-      ["Evidence reviewed", `<ul>${evidenceReviewed.map(item => `<li>${escapeHtml(item)}</li>`).join("")}${risk.missing.map(item => `<li>${escapeHtml(item.label)} — <strong>not provided</strong></li>`).join("")}</ul>`],
-      ["Assertion results", `<ul>${assertions.map(item => `<li><strong>${item.name} — ${item.status}:</strong> ${escapeHtml(item.rationale)}</li>`).join("")}</ul>`],
+      ["Procedure Performed", `Agreed invoice ${sample.invoice} to the general ledger, inspected available contractual and shipping support, compared the recognition date with the shipping date for cutoff, and inspected the subsequent cash receipt. Evaluated occurrence, accuracy, cutoff, collectibility, and evidence sufficiency.`],
+      ["Evidence Reviewed", `<ul>${evidenceReviewed.map(item => `<li>${escapeHtml(item)}</li>`).join("")}${risk.missing.map(item => `<li>${escapeHtml(item.label)} — <strong>not provided</strong></li>`).join("")}</ul>`],
       ["Difference evaluation", risk.difference ? `A potential ${risk.difference > 0 ? "understatement" : "overstatement"} of ${money(Math.abs(risk.difference))} was identified relative to the invoice. The amount is ${Math.abs(risk.difference) < engagement.postingThreshold ? "below" : "above"} the ${money(engagement.postingThreshold)} clearly trivial threshold; the nature and cause must still be evaluated before disposition.` : "No invoice-to-GL difference was identified."],
-      ["Exceptions", `<ul>${exceptionItems}</ul>`, risk.findings.length ? "exception" : ""],
-      ["Audit conclusion", conclusion, "conclusion"]
+      ["Exceptions Noted", `<ul>${exceptionItems}</ul>`, risk.findings.length ? "exception" : ""],
+      ["Assertion Impact", `<ul>${assertions.map(item => `<li><strong>${item.name} — ${item.status}:</strong> ${escapeHtml(item.rationale)}</li>`).join("")}</ul>`],
+      ["Audit Conclusion", outcome.conclusion, "conclusion"],
+      ["Prepared By", `${engagement.preparer.name} (${engagement.preparer.initials}), ${engagement.preparer.role}.`],
+      ["Reviewed By", `${engagement.reviewer.name} (${engagement.reviewer.initials}), ${engagement.reviewer.role}.`],
+      ["Review Status", `${review.status}. Open comments: ${review.openComments.length}; resolved comments: ${review.resolvedComments}. ${review.conclusion}`]
     ];
 
     $("#wpSections").innerHTML = sections.map(([title, content, className = ""]) => `<section class="wp-section ${className}"><h3>${title}</h3><div>${content.startsWith("<") ? content : `<p>${escapeHtml(content)}</p>`}</div></section>`).join("");
@@ -339,6 +472,8 @@
     $("#wpRisk").textContent = `${risk.level} risk · ${risk.score}/100`;
     $("#preparedDate").textContent = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date());
     $("#preparerSignoff").textContent = sample.workflowStatus === "Prepared" ? "Prepared" : `Draft · ${sample.workflowStatus}`;
+    $("#wpReviewStatus").textContent = review.status;
+    $("#reviewerSignoffCard").classList.toggle("pending-signoff", sample.workflowStatus !== "Reviewed");
     $("#workingPaperPlaceholder").hidden = true;
     $("#workingPaperOutput").hidden = false;
     state.paperSampleId = sample.id;
@@ -381,7 +516,10 @@
   }
 
   function openSample(id, clearActiveFilters = false) {
-    if (id !== state.selectedId) invalidateWorkingPaper();
+    if (id !== state.selectedId) {
+      invalidateWorkingPaper();
+      invalidatePbcRequest();
+    }
     state.selectedId = id;
     if (clearActiveFilters) {
       state.riskFilter = "All"; state.statusFilter = "All"; state.searchTerm = "";
@@ -425,6 +563,8 @@
       const method = $("#riskMethod"); method.hidden = !method.hidden;
       $("#riskMethodButton").setAttribute("aria-expanded", String(!method.hidden));
     });
+    $("#generatePbcButton").addEventListener("click", () => generatePbcRequest(selectedSample()));
+    $("#downloadPbcButton").addEventListener("click", downloadPbcRequest);
     ["#generatePaperButton", "#generatePlaceholderButton", "#generateFromDetail"].forEach(selector => $(selector).addEventListener("click", () => generateWorkingPaper(selectedSample())));
     $("#exportButton").addEventListener("click", exportCSV);
     $("#printButton").addEventListener("click", () => window.print());
@@ -456,6 +596,8 @@
     state.statusFilter = "All";
     state.searchTerm = "";
     state.paperSampleId = null;
+    state.pbcSampleId = null;
+    state.pbcText = "";
     state.selectedId = samples[0]?.id || null;
     $("#searchInput").value = "";
     $("#statusFilter").value = "All";

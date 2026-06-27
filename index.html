@@ -84,8 +84,10 @@
           <ol class="workflow-guide" aria-label="Sample testing workflow">
             <li><span>1</span><strong>Select sample</strong></li>
             <li><span>2</span><strong>Review evidence</strong></li>
-            <li><span>3</span><strong>Review risk</strong></li>
-            <li><span>4</span><strong>Generate working paper</strong></li>
+            <li><span>3</span><strong>Assess risk</strong></li>
+            <li><span>4</span><strong>Generate PBC request</strong></li>
+            <li><span>5</span><strong>Generate working paper</strong></li>
+            <li><span>6</span><strong>Manager review</strong></li>
           </ol>
 
           <div class="engagement-card" id="engagement-details">
@@ -169,7 +171,7 @@
           <div class="table-card panel">
             <div class="table-wrap">
               <table>
-                <thead><tr><th scope="col">Sample</th><th scope="col">Customer / invoice</th><th scope="col" class="numeric">Invoice amount</th><th scope="col" class="numeric">GL amount</th><th scope="col">Recognition / ship</th><th scope="col">Evidence</th><th scope="col">Workflow</th><th scope="col">Risk</th><th scope="col"><span class="sr-only">Open sample</span></th></tr></thead>
+                <thead><tr><th scope="col">Sample</th><th scope="col">Customer / invoice</th><th scope="col" class="numeric">Invoice amount</th><th scope="col" class="numeric">GL amount</th><th scope="col">Recognition / ship</th><th scope="col">Evidence</th><th scope="col">Exceptions</th><th scope="col">Workflow</th><th scope="col">Risk</th><th scope="col"><span class="sr-only">Open sample</span></th></tr></thead>
                 <tbody id="sampleTableBody"></tbody>
               </table>
               <div class="empty-state" id="emptyState" hidden><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><strong>No samples found</strong><span>Adjust your search or filters and try again.</span><button class="text-button" id="clearFilters">Clear filters</button></div>
@@ -197,12 +199,36 @@
                 <div class="panel-heading"><div><span class="panel-kicker">PBC EVIDENCE</span><h2>Evidence checklist</h2><p id="evidenceSummary">—</p></div><span class="document-icon"><svg viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6zM14 2v5h5"/></svg></span></div>
                 <div class="evidence-list" id="evidenceList"></div>
                 <div class="evidence-callout" id="evidenceCallout"></div>
+                <button class="secondary-button evidence-action" id="generatePbcButton">Generate PBC request</button>
               </article>
             </div>
 
             <article class="panel assertion-panel">
               <div class="panel-heading"><div><span class="panel-kicker">AUDIT PROCEDURES</span><h2>Relevant assertion testing</h2><p>Nature, timing, extent, and results by financial statement assertion.</p></div><span class="reviewer-chip"><span>JL</span> Manager review pending</span></div>
               <div class="assertion-table" id="assertionMatrix"></div>
+            </article>
+
+            <article class="panel audit-outcome-panel">
+              <div class="panel-heading"><div><span class="panel-kicker">AUDIT OUTCOME</span><h2>Sample assessment</h2><p>Consolidated result from transaction testing, evidence, and exception evaluation.</p></div><span id="outcomeStatusBadge" class="workflow-badge">—</span></div>
+              <div class="outcome-grid" id="auditOutcomeGrid"></div>
+              <div class="outcome-conclusion" id="auditConclusion"></div>
+            </article>
+
+            <article class="panel pbc-request-panel" id="pbcRequestPanel" hidden>
+              <header class="pbc-header"><div><span class="panel-kicker">CLIENT REQUEST · DRAFT</span><h2 id="pbcRequestId">PBC-REV</h2><p id="pbcRequestCustomer">—</p></div><span class="workflow-badge prepared">Draft</span></header>
+              <div class="pbc-body"><div><small>Requested support</small><div id="pbcRequestItems"></div></div><div><small>Audit purpose</small><p id="pbcRequestPurpose"></p></div><div><small>Requested response</small><p>Upload the requested support and identify the preparer within 3 business days.</p></div></div>
+              <footer class="pbc-footer"><span>This request is generated locally and is not sent to the client.</span><button class="secondary-button" id="downloadPbcButton"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg> Download draft</button></footer>
+            </article>
+
+            <article class="panel manager-review-panel" id="managerReviewPanel">
+              <div class="panel-heading"><div><span class="panel-kicker">MANAGER REVIEW</span><h2>Review and sign-off</h2><p>Reviewer status, comments, and conclusion for the selected sample.</p></div><span class="reviewer-chip"><span>JL</span> Jordan Lee · Audit Manager</span></div>
+              <div class="manager-summary-grid">
+                <div><small>Review status</small><strong id="managerReviewStatus">—</strong></div>
+                <div><small>Open comments</small><strong id="managerOpenCount">0</strong></div>
+                <div><small>Resolved comments</small><strong id="managerResolvedCount">0</strong></div>
+              </div>
+              <div class="review-comments" id="managerReviewComments"></div>
+              <div class="manager-conclusion"><small>Manager conclusion</small><p id="managerConclusion">—</p></div>
             </article>
           </div>
         </section>
@@ -226,7 +252,7 @@
             </header>
             <div class="wp-sample-banner"><span>Sample selected</span><strong id="wpSampleId"></strong><span id="wpCustomer"></span><span id="wpRisk"></span></div>
             <div class="wp-sections" id="wpSections"></div>
-            <div class="signoff-grid"><div><span class="avatar">AM</span><p><small>Prepared by</small><strong>Alex Morgan</strong><em id="preparerSignoff">Draft generated</em></p></div><div class="pending-signoff"><span class="avatar">JL</span><p><small>Reviewed by</small><strong>Jordan Lee</strong><em>Pending manager review</em></p></div></div>
+            <div class="signoff-grid"><div><span class="avatar">AM</span><p><small>Prepared by</small><strong>Alex Morgan</strong><em id="preparerSignoff">Draft generated</em></p></div><div class="pending-signoff" id="reviewerSignoffCard"><span class="avatar">JL</span><p><small>Reviewed by</small><strong>Jordan Lee</strong><em id="wpReviewStatus">Pending manager review</em></p></div></div>
             <footer class="wp-footer"><span>Generated from fictional data · Professional judgment required</span><div><button class="secondary-button" id="backToSampleButton">Back to sample</button><button class="secondary-button" id="printButton"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4V9h16v9h-2M7 14h10v7H7z"/></svg> Print / Save PDF</button></div></footer>
           </article>
         </section>
