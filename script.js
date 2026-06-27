@@ -21,7 +21,7 @@
     arrow: '<svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>'
   });
   const riskColors = Object.freeze({ High: "#b7373f", Medium: "#c17a18", Low: "#27906a" });
-  const state = { selectedId: revenueSamples[0].id, riskFilter: "All", statusFilter: "All", searchTerm: "", paperSampleId: null };
+  const state = { selectedId: null, riskFilter: "All", statusFilter: "All", searchTerm: "", paperSampleId: null };
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
 
@@ -173,10 +173,11 @@
   }
 
   function reconcileSelection(rows) {
-    if (rows.length && !rows.some(sample => sample.id === state.selectedId)) {
-      state.selectedId = rows[0].id;
-      invalidateWorkingPaper();
-    }
+    const previousId = state.selectedId;
+    if (!rows.length) state.selectedId = null;
+    else if (!rows.some(sample => sample.id === state.selectedId)) state.selectedId = rows[0].id;
+    if (previousId !== state.selectedId) invalidateWorkingPaper();
+    return rows.find(sample => sample.id === state.selectedId) || null;
   }
 
   function invalidateWorkingPaper() {
@@ -186,9 +187,15 @@
     state.paperSampleId = null;
   }
 
-  function renderTable() {
+  function setWorkingPaperAvailability(enabled) {
+    ["#generatePaperButton", "#generatePlaceholderButton", "#generateFromDetail"].forEach(selector => {
+      $(selector).disabled = !enabled;
+    });
+  }
+
+  function renderSamplesView() {
     const rows = filteredSamples();
-    reconcileSelection(rows);
+    const activeSample = reconcileSelection(rows);
     $("#sampleTableBody").innerHTML = rows.map(sample => {
       const totalEvidence = Object.keys(sample.evidence).length;
       const availableEvidence = totalEvidence - sample.risk.missing.length;
@@ -204,15 +211,16 @@
         <td><span class="row-action">${icons.arrow}</span></td>
       </tr>`;
     }).join("");
-    $("#emptyState").hidden = rows.length > 0;
+    const hasRows = rows.length > 0;
+    $("#emptyState").hidden = hasRows;
+    $("#sampleDetail").hidden = !hasRows;
     $("#tableResultCount").textContent = `Showing ${rows.length} of ${samples.length} samples`;
     $("#allCount").textContent = samples.length;
-    if (rows.length) renderDetail();
+    setWorkingPaperAvailability(Boolean(activeSample));
+    if (activeSample) renderDetail(activeSample);
   }
 
-  function renderDetail() {
-    const sample = selectedSample();
-    if (!sample) return;
+  function renderDetail(sample) {
     const { risk } = sample;
     $("#detailTitle").textContent = `${sample.id} · ${sample.customer}`;
     $("#detailSubtitle").textContent = `${sample.invoice} · ${money(sample.invoiceAmount)} · Owner ${sample.owner}`;
@@ -270,6 +278,10 @@
 
   function setWorkflowStatus(nextStatus) {
     const sample = selectedSample();
+    if (!sample) {
+      showToast("Select a sample before updating workflow status.");
+      return;
+    }
     if (nextStatus === "Reviewed") {
       $("#workflowStatusSelect").value = sample.workflowStatus;
       showToast("Manager credentials are required to mark a sample reviewed.");
@@ -289,12 +301,15 @@
     invalidateWorkingPaper();
     saveWorkflowOverrides();
     renderDashboard();
-    renderTable();
+    renderSamplesView();
     showToast(`${sample.id} moved to ${nextStatus}.`);
   }
 
-  function generateWorkingPaper() {
-    const sample = selectedSample();
+  function generateWorkingPaper(sample) {
+    if (!sample) {
+      showToast("Select a sample before generating a working paper.");
+      return;
+    }
     const { risk } = sample;
     const assertions = assertionResults(sample);
     const evidenceReviewed = Object.entries(sample.evidence).filter(([, available]) => available).map(([key]) => evidenceMeta[key].label);
@@ -355,14 +370,14 @@
     state.riskFilter = $(".filter-button.active").dataset.risk;
     state.statusFilter = $("#statusFilter").value;
     state.searchTerm = $("#searchInput").value.trim();
-    renderTable();
+    renderSamplesView();
   }
 
   function resetFilters() {
     state.riskFilter = "All"; state.statusFilter = "All"; state.searchTerm = "";
     $("#searchInput").value = ""; $("#statusFilter").value = "All";
     $$(".filter-button").forEach(button => button.classList.toggle("active", button.dataset.risk === "All"));
-    renderTable();
+    renderSamplesView();
   }
 
   function openSample(id, clearActiveFilters = false) {
@@ -373,7 +388,7 @@
       $("#searchInput").value = ""; $("#statusFilter").value = "All";
       $$(".filter-button").forEach(button => button.classList.toggle("active", button.dataset.risk === "All"));
     }
-    renderTable();
+    renderSamplesView();
     $("#sampleDetail").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -403,14 +418,14 @@
       state.riskFilter = "High"; state.statusFilter = "All"; state.searchTerm = "";
       $("#searchInput").value = ""; $("#statusFilter").value = "All";
       $$(".filter-button").forEach(button => button.classList.toggle("active", button.dataset.risk === "High"));
-      renderTable(); $("#samples").scrollIntoView({ behavior: "smooth" });
+      renderSamplesView(); $("#samples").scrollIntoView({ behavior: "smooth" });
     });
     $("#workflowStatusSelect").addEventListener("change", event => setWorkflowStatus(event.target.value));
     $("#riskMethodButton").addEventListener("click", () => {
       const method = $("#riskMethod"); method.hidden = !method.hidden;
       $("#riskMethodButton").setAttribute("aria-expanded", String(!method.hidden));
     });
-    ["#generatePaperButton", "#generatePlaceholderButton", "#generateFromDetail"].forEach(selector => $(selector).addEventListener("click", generateWorkingPaper));
+    ["#generatePaperButton", "#generatePlaceholderButton", "#generateFromDetail"].forEach(selector => $(selector).addEventListener("click", () => generateWorkingPaper(selectedSample())));
     $("#exportButton").addEventListener("click", exportCSV);
     $("#printButton").addEventListener("click", () => window.print());
     $("#backToSampleButton").addEventListener("click", () => $("#sampleDetail").scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -436,7 +451,20 @@
     $$(".page-section").forEach(section => observer.observe(section));
   }
 
-  renderDashboard();
-  renderTable();
-  bindEvents();
+  function initializeApp() {
+    state.riskFilter = "All";
+    state.statusFilter = "All";
+    state.searchTerm = "";
+    state.paperSampleId = null;
+    state.selectedId = samples[0]?.id || null;
+    $("#searchInput").value = "";
+    $("#statusFilter").value = "All";
+    $$(".filter-button").forEach(button => button.classList.toggle("active", button.dataset.risk === "All"));
+
+    bindEvents();
+    renderDashboard();
+    renderSamplesView();
+  }
+
+  initializeApp();
 })();

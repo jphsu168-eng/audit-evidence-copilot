@@ -116,9 +116,15 @@ main { max-width: 1540px; margin: 0 auto; padding: 28px 30px 52px; }
 .page-heading p, .section-heading p { margin: 0; color: var(--ink-500); font-size: 11px; }
 .eyebrow, .overline, .panel-kicker { color: var(--blue-700) !important; font-size: 8px !important; font-weight: 800; letter-spacing: 1.15px; text-transform: uppercase; }
 .heading-actions { display: flex; gap: 8px; }
+.workflow-guide { display: flex; align-items: center; gap: 0; margin: -7px 0 16px; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; background: white; box-shadow: var(--shadow-sm); list-style: none; }
+.workflow-guide li { position: relative; display: flex; align-items: center; gap: 7px; flex: 1; min-height: 38px; padding: 0 18px; color: var(--ink-500); font-size: 8px; }
+.workflow-guide li:not(:last-child)::after { content: ""; position: absolute; top: 0; right: -12px; z-index: 1; width: 24px; height: 100%; border-top: 1px solid var(--line); border-right: 1px solid var(--line); background: white; transform: rotate(45deg) skew(7deg, 7deg) scale(.72); }
+.workflow-guide li span { display: grid; place-items: center; flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; color: var(--blue-700); background: var(--blue-100); font-size: 7px; font-weight: 800; }
+.workflow-guide li strong { color: var(--ink-700); font-weight: 700; white-space: nowrap; }
 .primary-button, .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 13px; border-radius: 6px; font-size: 10px; font-weight: 750; cursor: pointer; transition: .18s ease; }
 .primary-button { border: 1px solid var(--blue-600); color: white; background: var(--blue-600); box-shadow: 0 2px 6px rgba(23,105,210,.16); }
 .primary-button:hover { border-color: #1155ae; background: #1155ae; }
+.primary-button:disabled, .secondary-button:disabled { border-color: #cfd7df; color: var(--ink-400); background: #eef2f5; box-shadow: none; cursor: not-allowed; }
 .primary-button > span { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 10px; color: var(--blue-700); background: white; font-size: 8px; }
 .secondary-button { border: 1px solid #c8d3df; color: #34445a; background: white; }
 .secondary-button:hover { border-color: #93a9c0; background: var(--slate-50); }
@@ -415,6 +421,10 @@ tbody tr.selected { background: #eef5fd; box-shadow: inset 3px 0 var(--blue-600)
   .page-heading, .section-heading { align-items: stretch; flex-direction: column; }
   .heading-actions { width: 100%; }
   .heading-actions button { flex: 1; }
+  .workflow-guide { display: grid; grid-template-columns: 1fr 1fr; }
+  .workflow-guide li { padding: 0 12px; border-top: 1px solid var(--line); }
+  .workflow-guide li:nth-child(-n+2) { border-top: 0; }
+  .workflow-guide li::after { display: none; }
   .engagement-card { padding: 16px; }
   .engagement-title { min-width: 0; }
   .engagement-facts { grid-template-columns: 1fr 1fr; gap: 14px 0; }
@@ -454,6 +464,9 @@ tbody tr.selected { background: #eef5fd; box-shadow: inset 3px 0 var(--blue-600)
   main { padding: 20px 12px 40px; }
   .page-heading h1 { font-size: 22px; }
   .heading-actions { flex-direction: column-reverse; }
+  .workflow-guide { grid-template-columns: 1fr; }
+  .workflow-guide li { border-top: 1px solid var(--line) !important; }
+  .workflow-guide li:first-child { border-top: 0 !important; }
   .metric-grid { gap: 8px; }
   .metric-card { padding: 13px; }
   .metric-card > strong { font-size: 18px; }

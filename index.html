@@ -81,6 +81,13 @@
             </div>
           </div>
 
+          <ol class="workflow-guide" aria-label="Sample testing workflow">
+            <li><span>1</span><strong>Select sample</strong></li>
+            <li><span>2</span><strong>Review evidence</strong></li>
+            <li><span>3</span><strong>Review risk</strong></li>
+            <li><span>4</span><strong>Generate working paper</strong></li>
+          </ol>
+
           <div class="engagement-card" id="engagement-details">
             <div class="engagement-title">
               <span class="company-logo">N</span>
@@ -167,10 +174,10 @@
               </table>
               <div class="empty-state" id="emptyState" hidden><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><strong>No samples found</strong><span>Adjust your search or filters and try again.</span><button class="text-button" id="clearFilters">Clear filters</button></div>
             </div>
-            <div class="table-footer"><span id="tableResultCount">Showing 10 of 10 samples</span><span>Amounts in USD · Click a row to inspect</span></div>
+            <div class="table-footer"><span id="tableResultCount">Loading samples…</span><span>Amounts in USD · Click a row to inspect</span></div>
           </div>
 
-          <div class="detail-workspace" id="sampleDetail">
+          <div class="detail-workspace" id="sampleDetail" hidden>
             <div class="detail-topbar">
               <div><span class="selection-label">Selected sample</span><strong id="detailTitle">—</strong><span id="detailSubtitle">—</span></div>
               <div class="detail-actions"><label class="status-update"><span>Workflow status</span><select id="workflowStatusSelect" aria-label="Workflow status"><option>In progress</option><option>Awaiting evidence</option><option>Exception</option><option>Prepared</option><option>Reviewed</option></select></label><button class="primary-button" id="generateFromDetail">Generate working paper</button></div>

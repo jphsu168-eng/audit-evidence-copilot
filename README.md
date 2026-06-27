@@ -27,6 +27,7 @@ This prototype centralizes those decisions and maintains a visible link between 
 - Documented audit approach, relevant assertions, cutoff window, and population reconciliation.
 - Ten realistic fictional revenue samples selected through random, cutoff, and high-value methods.
 - Search plus combined risk and workflow-status filtering.
+- Four-step workflow guide from sample selection through working-paper generation.
 - Evidence checklist with PBC state, document references, and assertion mapping.
 - Transparent risk assessment for:
   - Invoice-to-GL amount differences.
@@ -96,6 +97,7 @@ audit-evidence-copilot/
 - `data.js` is the single configuration and mock-data source.
 - The risk engine returns normalized findings with labels, points, and assertion context.
 - A small application state object controls the active sample and combined filters.
+- One sample-view render path controls rows, result counts, empty state, active selection, evidence, risk, and generator availability so the UI cannot present contradictory states.
 - Table interactions use event delegation, avoiding listener re-binding after each render.
 - User-provided search values are never injected into generated markup.
 - Mock text rendered into HTML is escaped defensively.
