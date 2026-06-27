@@ -1,612 +1,843 @@
-/* global engagement, revenueSamples, riskRules */
-
-(() => {
+(function () {
   "use strict";
 
-  const STORAGE_KEY = "audit-evidence-copilot.workflow.v1";
-  const evidenceMeta = Object.freeze({
-    invoice: { label: "Invoice", code: "INV", assertion: "Occurrence / accuracy" },
-    salesContract: { label: "Sales contract", code: "CON", assertion: "Occurrence / rights" },
-    shippingDocument: { label: "Shipping document", code: "SHP", assertion: "Cutoff / occurrence" },
-    cashReceipt: { label: "Cash receipt", code: "CSH", assertion: "Collectibility" },
-    glDetail: { label: "GL detail", code: "GL", assertion: "Accuracy / completeness" }
-  });
-  const icons = Object.freeze({
-    samples: '<svg viewBox="0 0 24 24"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg>',
-    risk: '<svg viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5M12 18h.01"/></svg>',
-    missing: '<svg viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 13h6"/></svg>',
-    value: '<svg viewBox="0 0 24 24"><path d="M4 7h16v12H4zM7 4h10v3M8 13h8M12 10v6"/></svg>',
-    check: '<svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>',
-    cross: '<svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg>',
-    arrow: '<svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>'
-  });
-  const riskColors = Object.freeze({ High: "#b7373f", Medium: "#c17a18", Low: "#27906a" });
-  const state = { selectedId: null, riskFilter: "All", statusFilter: "All", searchTerm: "", paperSampleId: null, pbcSampleId: null, pbcText: "" };
-  const $ = selector => document.querySelector(selector);
-  const $$ = selector => [...document.querySelectorAll(selector)];
+  const STORAGE_KEY = "audit-evidence-copilot.workbench.v2";
+  const LEGACY_STORAGE_KEY = "audit-evidence-copilot.workflow.v1";
+  const DEFAULT_SAMPLE_ID = "REV-001";
 
-  const money = value => new Intl.NumberFormat("en-US", {
-    style: "currency", currency: "USD", maximumFractionDigits: 0
+  const evidenceLabels = {
+    invoice: "Invoice",
+    salesContract: "Sales Contract",
+    shippingDocument: "Shipping Document",
+    cashReceipt: "Cash Receipt",
+    glDetail: "GL Detail"
+  };
+
+  const evidenceIcons = {
+    invoice: "receipt_long",
+    salesContract: "description",
+    shippingDocument: "local_shipping",
+    cashReceipt: "payments",
+    glDetail: "table_view"
+  };
+
+  const state = {
+    selectedId: null,
+    activeFilter: "All",
+    searchTerm: ""
+  };
+
+  const byId = (id) => document.getElementById(id);
+  const currency = (value) => new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0
   }).format(value);
-  const compactMoney = value => new Intl.NumberFormat("en-US", {
-    style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2
-  }).format(value);
-  const shortDate = value => new Intl.DateTimeFormat("en-US", {
-    month: "short", day: "numeric", year: "numeric", timeZone: "UTC"
-  }).format(new Date(`${value}T00:00:00Z`));
-  const daysBetween = (start, end) => Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000);
-  const slugify = value => value.toLowerCase().replaceAll(" ", "-");
-  const escapeHtml = value => String(value).replace(/[&<>'"]/g, character => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+  const signedCurrency = (value) => `${value < 0 ? "-" : ""}${currency(Math.abs(value))}`;
+  const formatDate = (value) => value ? new Date(`${value}T12:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  }) : "Not available";
+  const today = () => new Date().toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  });
+  const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "'": "&#39;",
+    '"': "&quot;"
   })[character]);
+  const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-  function loadWorkflowOverrides() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); }
-    catch { return {}; }
+  function normalizeStatus(status) {
+    const aliases = {
+      Prepared: "Ready for Review",
+      "In progress": "In Progress",
+      "Awaiting evidence": "Waiting for Client",
+      Exception: "Exception Noted"
+    };
+    const normalized = aliases[status] || status;
+    return ["Not Started", "In Progress", "Waiting for Client", "Exception Noted", "Ready for Review", "Reviewed"].includes(normalized)
+      ? normalized
+      : "Not Started";
   }
 
-  function saveWorkflowOverrides() {
+  function loadPersistedState() {
     try {
-      const overrides = Object.fromEntries(samples.map(sample => [sample.id, sample.workflowStatus]));
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
-    } catch {
-      showToast("Status updated for this session; browser storage is unavailable.");
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      if (saved.samples && typeof saved.samples === "object") return saved.samples;
+
+      const legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) || "{}");
+      return Object.fromEntries(Object.entries(legacy).map(([id, workflowStatus]) => [id, { workflowStatus }]));
+    } catch (error) {
+      console.warn("Saved workbench state could not be loaded.", error);
+      return {};
     }
   }
 
   function missingEvidence(sample) {
     return Object.entries(sample.evidence)
       .filter(([, available]) => !available)
-      .map(([key]) => ({ key, ...evidenceMeta[key] }));
+      .map(([key]) => evidenceLabels[key]);
   }
 
-  /**
-   * Transparent prioritization logic for the educational prototype.
-   * The engine evaluates four common revenue-test signals and caps the total at 100.
-   * It supports audit judgment; it does not replace a firm's methodology or conclusion.
-   */
+  // Risk scoring mirrors a simple revenue test-of-details triage model. The score is
+  // intentionally explainable: each exception adds a documented number of points.
   function assessRisk(sample) {
-    const findings = [];
-    const difference = sample.invoiceAmount - sample.glAmount;
-    const cutoffDays = daysBetween(sample.recognitionDate, sample.shippingDate);
-    const receiptDays = daysBetween(sample.recognitionDate, sample.cashReceiptDate);
+    const difference = sample.glAmount - sample.invoiceAmount;
+    const mismatch = Math.abs(difference) > 0.01;
+    const recognizedBeforeShipment = new Date(sample.revenueDate) < new Date(sample.shippingDate);
+    const cashDays = Math.round((new Date(sample.cashReceiptDate) - new Date(sample.revenueDate)) / 86400000);
+    const delayedCash = cashDays > riskRules.delayedCashDays;
     const missing = missingEvidence(sample);
-
-    if (difference !== 0) {
-      const direction = difference > 0 ? "exceeds" : "is below";
-      const differencePoints = Math.abs(difference) >= engagement.postingThreshold ? riskRules.amountMismatch : riskRules.amountMismatchBelowThreshold;
-      const thresholdContext = Math.abs(difference) < engagement.postingThreshold ? " The difference is below the clearly trivial threshold but remains an audit exception requiring explanation." : " The difference meets or exceeds the clearly trivial threshold.";
-      findings.push({ key: "accuracy", label: "Amount mismatch", points: differencePoints, detail: `Invoice ${direction} the GL posting by ${money(Math.abs(difference))}.${thresholdContext}` });
-    }
-    if (cutoffDays > 0) {
-      findings.push({ key: "cutoff", label: "Premature recognition", points: riskRules.prematureRecognition, detail: `Revenue was recognized ${cutoffDays} day${cutoffDays === 1 ? "" : "s"} before shipment.` });
-    }
-    missing.forEach(document => findings.push({
-      key: `evidence-${document.key}`,
-      label: `Missing ${document.label.toLowerCase()}`,
-      points: riskRules.evidenceWeights[document.key],
-      detail: `${document.label} is not available; evidence for ${document.assertion.toLowerCase()} is incomplete.`
-    }));
-    if (receiptDays > riskRules.delayedCashDays) {
-      findings.push({ key: "collectibility", label: "Delayed cash receipt", points: riskRules.delayedCashReceipt, detail: `Cash was received ${receiptDays} days after revenue recognition (${receiptDays - riskRules.delayedCashDays} days beyond the review threshold).` });
-    }
-
-    const score = Math.min(findings.reduce((total, finding) => total + finding.points, 0), 100);
+    const points = {
+      mismatch: mismatch ? riskRules.amountMismatch : 0,
+      cutoff: recognizedBeforeShipment ? riskRules.prematureRecognition : 0,
+      missing: Math.min(missing.reduce((total, label) => {
+        const key = Object.keys(evidenceLabels).find((item) => evidenceLabels[item] === label);
+        return total + (riskRules.evidenceWeights[key] || 0);
+      }, 0), riskRules.maxEvidencePoints),
+      delayedCash: delayedCash ? riskRules.delayedCashReceipt : 0
+    };
+    const score = Math.min(100, Object.values(points).reduce((total, value) => total + value, 0));
     const level = score >= riskRules.thresholds.high ? "High" : score >= riskRules.thresholds.medium ? "Medium" : "Low";
-    return { score, level, findings, difference, cutoffDays, receiptDays, missing };
+    const findings = [];
+
+    if (mismatch) findings.push(`Invoice-to-GL difference of ${signedCurrency(difference)}`);
+    if (recognizedBeforeShipment) findings.push("Revenue recognized before shipment");
+    if (missing.length) findings.push(`${missing.length} missing evidence item${missing.length === 1 ? "" : "s"}`);
+    if (delayedCash) findings.push(`Cash receipt collected ${cashDays} days after invoice`);
+
+    return { difference, mismatch, recognizedBeforeShipment, cashDays, delayedCash, missing, points, score, level, findings };
   }
 
-  const workflowOverrides = loadWorkflowOverrides();
-  const samples = revenueSamples.map(sample => ({
-    ...sample,
-    evidence: { ...sample.evidence },
-    workflowStatus: workflowOverrides[sample.id] || sample.workflowStatus
-  }));
-  samples.forEach(sample => { sample.risk = assessRisk(sample); });
+  const persisted = loadPersistedState();
+  const samples = revenueSamples.map((baseSample) => {
+    const saved = persisted[baseSample.id] || {};
+    const sample = {
+      ...baseSample,
+      invoiceNumber: baseSample.invoice,
+      revenueDate: baseSample.recognitionDate,
+      evidence: { ...baseSample.evidence, ...(saved.evidence || {}) },
+      workflowStatus: normalizeStatus(saved.workflowStatus || baseSample.workflowStatus),
+      auditNotes: typeof saved.auditNotes === "string" ? saved.auditNotes : "",
+      pbcStatus: saved.pbcStatus || "Draft",
+      pbcText: typeof saved.pbcText === "string" ? saved.pbcText : "",
+      workingPaperDraft: typeof saved.workingPaperDraft === "string" ? saved.workingPaperDraft : "",
+      workingPaperStatus: saved.workingPaperStatus || "Not Started",
+      workingPaperCustomized: Boolean(saved.workingPaperCustomized),
+      workingPaperStale: Boolean(saved.workingPaperStale),
+      managerComments: Array.isArray(saved.managerComments) ? saved.managerComments : []
+    };
+    sample.risk = assessRisk(sample);
+    if (!sample.risk.missing.length) {
+      sample.pbcStatus = "Not Required";
+      sample.pbcText = "";
+    } else if (!sample.pbcText) {
+      sample.pbcStatus = "Draft";
+      sample.pbcText = buildPbcText(sample);
+    }
+    return sample;
+  });
 
-  function selectedSample() { return samples.find(sample => sample.id === state.selectedId); }
+  function saveState() {
+    const storedSamples = Object.fromEntries(samples.map((sample) => [sample.id, {
+      evidence: sample.evidence,
+      workflowStatus: sample.workflowStatus,
+      auditNotes: sample.auditNotes,
+      pbcStatus: sample.pbcStatus,
+      pbcText: sample.pbcText,
+      workingPaperDraft: sample.workingPaperDraft,
+      workingPaperStatus: sample.workingPaperStatus,
+      workingPaperCustomized: sample.workingPaperCustomized,
+      workingPaperStale: sample.workingPaperStale,
+      managerComments: sample.managerComments
+    }]));
+
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, samples: storedSamples }));
+    } catch (error) {
+      console.warn("Workbench state could not be saved.", error);
+      showToast("Changes could not be saved in this browser.", "error");
+    }
+  }
+
+  function getSelectedSample() {
+    return samples.find((sample) => sample.id === state.selectedId) || null;
+  }
 
   function assertionResults(sample) {
-    const { risk } = sample;
-    const result = (name, procedure, status, rationale, category = "Relevant assertion") => ({ name, procedure, status, rationale, category });
-    return [
-      result("Occurrence", "Agree invoice and contract to the customer transaction.", sample.evidence.invoice && sample.evidence.salesContract ? "Pass" : "Exception", sample.evidence.invoice && sample.evidence.salesContract ? "Invoice and executed contract available." : "Required source evidence is incomplete."),
-      result("Accuracy", "Agree invoice value to the general ledger posting.", risk.difference === 0 && sample.evidence.glDetail ? "Pass" : "Exception", risk.difference === 0 ? "Invoice agrees to GL with no variance." : `${money(Math.abs(risk.difference))} variance requires follow-up.`),
-      result("Cutoff", "Compare recognition date with proof of shipment.", risk.cutoffDays <= 0 && sample.evidence.shippingDocument ? "Pass" : "Exception", risk.cutoffDays <= 0 ? "Revenue was not recognized before shipment." : `Recognition precedes shipment by ${risk.cutoffDays} days.`),
-      result("Collectibility", "Inspect subsequent cash receipt and elapsed days.", !sample.evidence.cashReceipt ? "Pending" : risk.receiptDays > riskRules.delayedCashDays ? "Exception" : "Pass", !sample.evidence.cashReceipt ? "Cash receipt support is outstanding." : `Receipt occurred ${risk.receiptDays} days after recognition.`, "Supporting procedure"),
-      result("Evidence", "Assess whether the evidence package is complete.", risk.missing.length ? "Pending" : "Pass", risk.missing.length ? `${risk.missing.length} required document${risk.missing.length === 1 ? " is" : "s are"} outstanding.` : "All five required documents are available.", "Sufficiency assessment")
-    ];
+    const impacted = new Set();
+    if (sample.risk.mismatch) ["Accuracy", "Occurrence"].forEach((item) => impacted.add(item));
+    if (sample.risk.recognizedBeforeShipment) impacted.add("Cutoff");
+    if (sample.risk.missing.length) ["Occurrence", "Existence"].forEach((item) => impacted.add(item));
+    if (sample.risk.delayedCash) ["Valuation", "Collectibility"].forEach((item) => impacted.add(item));
+
+    return ["Occurrence", "Accuracy", "Cutoff", "Existence", "Valuation", "Collectibility"].map((name) => ({
+      name,
+      status: impacted.has(name) ? "Affected" : "No exception noted"
+    }));
   }
 
   function auditOutcome(sample) {
-    const assertions = assertionResults(sample);
-    const affectedAssertions = assertions.filter(item => item.status !== "Pass").map(item => item.name);
-    const followUp = [];
-    if (sample.risk.missing.length) followUp.push(`Obtain ${sample.risk.missing.map(item => item.label.toLowerCase()).join(" and ")} through a PBC request or perform an alternative procedure.`);
-    if (sample.risk.cutoffDays > 0) followUp.push("Evaluate the cutoff exception and consider extending testing around year-end.");
-    if (sample.risk.difference) followUp.push("Reconcile the invoice-to-GL difference and document its disposition.");
-    if (sample.risk.receiptDays > riskRules.delayedCashDays) followUp.push("Corroborate collectibility and evaluate the delayed receipt.");
+    const assertions = assertionResults(sample).filter((assertion) => assertion.status === "Affected").map((assertion) => assertion.name);
+    const hasException = sample.risk.findings.length > 0;
+    const followUp = sample.risk.missing.length
+      ? `Obtain ${sample.risk.missing.join(", ")} and reperform the relevant procedures.`
+      : sample.risk.recognizedBeforeShipment
+        ? "Inspect shipping terms and evaluate whether the revenue entry requires a cutoff adjustment."
+        : sample.risk.mismatch
+          ? "Reconcile the invoice to the ledger and investigate the posting difference."
+          : sample.risk.delayedCash
+            ? "Evaluate collectibility and inspect subsequent cash receipt support."
+            : "No additional follow-up is required based on the procedures performed.";
 
-    const conclusion = sample.risk.level === "High"
-      ? "Exceptions affect relevant assertions. Further audit procedures and engagement-team evaluation are required before this sample can be concluded."
-      : sample.risk.findings.length
-        ? "One or more exceptions require documented follow-up. The sample remains open until the evidence and exception disposition are complete."
-        : "The transaction is supported, agrees to the general ledger, and was recognized in the appropriate period. No exceptions were identified."
+    let conclusion = "No exceptions were identified. Revenue is supported by the evidence reviewed and is fairly stated for this sample.";
+    if (sample.risk.missing.length) conclusion = "The sample is not ready for conclusion because required audit evidence remains outstanding.";
+    else if (sample.risk.score >= 65) conclusion = "A significant exception was identified. Escalate to the senior and evaluate the need for a proposed adjustment or expanded testing.";
+    else if (hasException) conclusion = "An exception was identified. Complete the documented follow-up before concluding on the sample.";
+
     return {
-      assertions,
-      affectedAssertions,
-      exceptionStatus: sample.risk.findings.length ? `${sample.risk.findings.length} open exception${sample.risk.findings.length === 1 ? "" : "s"}` : "No exceptions",
-      followUp: followUp.length ? followUp.join(" ") : "No additional follow-up required; route the completed sample for review.",
+      exceptionStatus: hasException ? "Exception noted" : "No exception",
+      assertions: assertions.length ? assertions : ["None"],
+      followUp,
       conclusion
     };
   }
 
-  function managerReviewSummary(sample, outcome = auditOutcome(sample)) {
-    const comments = [];
-    if (sample.risk.cutoffDays > 0) comments.push("Confirm the cutoff exception disposition and whether extended year-end testing was performed.");
-    if (sample.risk.difference) comments.push("Document the cause and classification of the invoice-to-GL difference.");
-    if (sample.risk.missing.length) comments.push("Clear outstanding PBC evidence or cross-reference the alternative audit procedure.");
-    if (sample.risk.receiptDays > riskRules.delayedCashDays) comments.push("Conclude on the collectibility implications of the delayed receipt.");
+  function managerReviewSummary(sample) {
+    const open = sample.managerComments.filter((comment) => !comment.resolved);
+    const resolved = sample.managerComments.filter((comment) => comment.resolved);
+    let status = "Not ready for review";
+    if (sample.workflowStatus === "Reviewed") status = "Review complete";
+    else if (open.length) status = "Review points open";
+    else if (sample.workflowStatus === "Ready for Review" || sample.workingPaperStatus === "Ready for Manager Review") status = "Ready for manager review";
 
-    const reviewed = sample.workflowStatus === "Reviewed";
-    const ready = sample.workflowStatus === "Prepared" && !sample.risk.findings.length;
-    return {
-      status: reviewed ? "Review complete" : ready ? "Ready for manager review" : comments.length ? "Review points open" : "Preparer work in progress",
-      openComments: reviewed ? [] : comments,
-      resolvedComments: reviewed ? Math.max(comments.length, 1) : ready ? 1 : 0,
-      conclusion: reviewed
-        ? "Manager review is complete. The documentation supports the sample conclusion and no review points remain open."
-        : comments.length
-          ? `Manager conclusion is pending resolution of ${comments.length} review point${comments.length === 1 ? "" : "s"}. ${outcome.conclusion}`
-          : ready
-            ? "The sample is ready for manager review and sign-off."
-            : "Complete preparer documentation and route the sample for manager review."
-    };
-  }
+    let conclusion = "Complete the associate procedures and route the sample for review.";
+    if (open.length) conclusion = "Address all open review comments before final manager sign-off.";
+    else if (sample.workflowStatus === "Reviewed") conclusion = "Manager review is complete; no open review points remain.";
+    else if (sample.workflowStatus === "Ready for Review") conclusion = sample.risk.findings.length
+      ? "Review the documented exception, assertion impact, and proposed resolution before sign-off."
+      : "The sample is ready for manager review and sign-off."
 
-  function renderDashboard() {
-    const totalValue = samples.reduce((total, sample) => total + sample.invoiceAmount, 0);
-    const grossDifferences = samples.reduce((total, sample) => total + Math.abs(sample.risk.difference), 0);
-    const highRisk = samples.filter(sample => sample.risk.level === "High").length;
-    const missingCount = samples.reduce((total, sample) => total + sample.risk.missing.length, 0);
-    const complete = samples.filter(sample => ["Prepared", "Reviewed"].includes(sample.workflowStatus)).length;
-    const completion = Math.round(complete / samples.length * 100);
-    const coverage = totalValue / engagement.populationValue * 100;
-    const openCount = samples.filter(sample => sample.workflowStatus !== "Reviewed").length;
-    const metrics = [
-      { label: "Samples selected", value: samples.length, note: `${coverage.toFixed(1)}% value coverage`, icon: icons.samples, color: "#1559b7", pale: "#eaf2fc" },
-      { label: "High-risk samples", value: highRisk, note: "Prioritized for follow-up", icon: icons.risk, color: "#b7373f", pale: "#fcebed" },
-      { label: "Evidence outstanding", value: missingCount, note: "Across selected samples", icon: icons.missing, color: "#9a5d0b", pale: "#fff2dc" },
-      { label: "Potential differences", value: compactMoney(grossDifferences), note: "Pending exception evaluation", icon: icons.value, color: "#187452", pale: "#e7f5ef" }
-    ];
-
-    $("#metricGrid").innerHTML = metrics.map(item => `
-      <article class="panel metric-card" style="--metric-color:${item.color};--metric-pale:${item.pale}">
-        <div class="metric-top"><span class="metric-label">${item.label}</span><span class="metric-icon">${item.icon}</span></div>
-        <strong>${item.value}</strong><p><b>${item.note}</b></p>
-      </article>`).join("");
-    $("#highRiskButtonCount").textContent = highRisk;
-    $("#navOpenCount").textContent = openCount;
-    $("#sampleCoverage").textContent = `${coverage.toFixed(1)}% of population value`;
-    $("#workflowProgress").textContent = `${complete} of ${samples.length} prepared`;
-    $("#progressPercent").textContent = `${completion}%`;
-    $(".large-progress").setAttribute("aria-valuenow", completion);
-    requestAnimationFrame(() => { $("#progressBar").style.width = `${completion}%`; });
-
-    const statusItems = [
-      ["Reviewed", samples.filter(s => s.workflowStatus === "Reviewed").length, "#187452"],
-      ["Prepared", samples.filter(s => s.workflowStatus === "Prepared").length, "#1769d2"],
-      ["In progress", samples.filter(s => s.workflowStatus === "In progress").length, "#7b8ca0"],
-      ["Needs follow-up", samples.filter(s => ["Exception", "Awaiting evidence"].includes(s.workflowStatus)).length, "#b7373f"]
-    ];
-    $("#progressLegend").innerHTML = statusItems.map(([label, count, color]) => `<span class="legend-item"><i class="legend-dot" style="background:${color}"></i><b>${count}</b> ${label}</span>`).join("");
-
-    const riskCounts = ["High", "Medium", "Low"].map(level => [level, samples.filter(sample => sample.risk.level === level).length]);
-    $("#riskBars").innerHTML = riskCounts.map(([level, count]) => `<div class="risk-bar-row"><span>${level} risk</span><span class="mini-bar"><i style="width:${count / samples.length * 100}%;background:${riskColors[level]}"></i></span><b>${count}</b></div>`).join("");
-
-    const queue = [...samples].filter(sample => sample.risk.findings.length).sort((a, b) => b.risk.score - a.risk.score).slice(0, 3);
-    $("#actionQueue").innerHTML = queue.map(sample => `<button type="button" class="action-item" data-open-sample="${sample.id}"><span class="action-icon">${icons.risk}</span><span><strong>${escapeHtml(sample.id)} · ${escapeHtml(sample.customer)}</strong><span>${sample.risk.findings.length} exception${sample.risk.findings.length === 1 ? "" : "s"} · ${escapeHtml(sample.workflowStatus)}</span></span><b>${sample.risk.score}</b></button>`).join("");
-  }
-
-  function filteredSamples() {
-    const term = state.searchTerm.toLowerCase();
-    return samples.filter(sample => {
-      const matchesRisk = state.riskFilter === "All" || sample.risk.level === state.riskFilter;
-      const matchesStatus = state.statusFilter === "All" || sample.workflowStatus === state.statusFilter;
-      const matchesSearch = [sample.id, sample.customer, sample.invoice].some(value => value.toLowerCase().includes(term));
-      return matchesRisk && matchesStatus && matchesSearch;
-    });
-  }
-
-  function reconcileSelection(rows) {
-    const previousId = state.selectedId;
-    if (!rows.length) state.selectedId = null;
-    else if (!rows.some(sample => sample.id === state.selectedId)) state.selectedId = rows[0].id;
-    if (previousId !== state.selectedId) {
-      invalidateWorkingPaper();
-      invalidatePbcRequest();
-    }
-    return rows.find(sample => sample.id === state.selectedId) || null;
-  }
-
-  function invalidateWorkingPaper() {
-    if (!state.paperSampleId) return;
-    $("#workingPaperOutput").hidden = true;
-    $("#workingPaperPlaceholder").hidden = false;
-    state.paperSampleId = null;
-  }
-
-  function invalidatePbcRequest() {
-    if (!state.pbcSampleId) return;
-    $("#pbcRequestPanel").hidden = true;
-    state.pbcSampleId = null;
-    state.pbcText = "";
-  }
-
-  function setWorkingPaperAvailability(enabled) {
-    ["#generatePaperButton", "#generatePlaceholderButton", "#generateFromDetail"].forEach(selector => {
-      $(selector).disabled = !enabled;
-    });
-    if (!enabled) $("#generatePbcButton").disabled = true;
-  }
-
-  function renderSamplesView() {
-    const rows = filteredSamples();
-    const activeSample = reconcileSelection(rows);
-    $("#sampleTableBody").innerHTML = rows.map(sample => {
-      const totalEvidence = Object.keys(sample.evidence).length;
-      const availableEvidence = totalEvidence - sample.risk.missing.length;
-      return `<tr data-id="${sample.id}" class="${state.selectedId === sample.id ? "selected" : ""}" tabindex="0" aria-label="Open ${escapeHtml(sample.id)} ${escapeHtml(sample.customer)}">
-        <td><span class="sample-id">${escapeHtml(sample.id)}</span></td>
-        <td class="customer-cell"><strong>${escapeHtml(sample.customer)}</strong><span>${escapeHtml(sample.invoice)}</span></td>
-        <td class="currency">${money(sample.invoiceAmount)}</td>
-        <td class="currency ${sample.risk.difference ? "amount-difference" : ""}">${money(sample.glAmount)}</td>
-        <td class="date-cell">${shortDate(sample.recognitionDate)}<span>Ship ${shortDate(sample.shippingDate)}</span></td>
-        <td><span class="evidence-count ${sample.risk.missing.length ? "missing" : ""}">${sample.risk.missing.length ? icons.missing : icons.check}${availableEvidence}/${totalEvidence}</span></td>
-        <td><span class="exception-badge ${sample.risk.findings.length ? "open" : ""}">${sample.risk.findings.length ? `${sample.risk.findings.length} open` : "Clear"}</span></td>
-        <td><span class="workflow-badge ${slugify(sample.workflowStatus)}">${escapeHtml(sample.workflowStatus)}</span></td>
-        <td><span class="risk-badge ${sample.risk.level.toLowerCase()}">${sample.risk.level}<span class="risk-score">${sample.risk.score}</span></span></td>
-        <td><span class="row-action">${icons.arrow}</span></td>
-      </tr>`;
-    }).join("");
-    const hasRows = rows.length > 0;
-    $("#emptyState").hidden = hasRows;
-    $("#sampleDetail").hidden = !hasRows;
-    $("#tableResultCount").textContent = `Showing ${rows.length} of ${samples.length} samples`;
-    $("#allCount").textContent = samples.length;
-    setWorkingPaperAvailability(Boolean(activeSample));
-    if (activeSample) renderDetail(activeSample);
-  }
-
-  function renderDetail(sample) {
-    const { risk } = sample;
-    const outcome = auditOutcome(sample);
-    const review = managerReviewSummary(sample, outcome);
-    $("#detailTitle").textContent = `${sample.id} · ${sample.customer}`;
-    $("#detailSubtitle").textContent = `${sample.invoice} · ${money(sample.invoiceAmount)} · Owner ${sample.owner}`;
-    $("#selectionBasis").textContent = `Selection basis: ${sample.selectionBasis}`;
-    $("#workflowStatusSelect").value = sample.workflowStatus;
-    const badge = $("#detailRiskBadge");
-    badge.className = `risk-badge ${risk.level.toLowerCase()}`;
-    badge.innerHTML = `${risk.level} risk <span class="risk-score">${risk.score}/100</span>`;
-
-    $("#dateTimeline").innerHTML = [
-      ["Revenue recognized", sample.recognitionDate, risk.cutoffDays > 0],
-      ["Goods shipped", sample.shippingDate, risk.cutoffDays > 0],
-      ["Cash received", sample.cashReceiptDate, risk.receiptDays > riskRules.delayedCashDays]
-    ].map(([label, date, alert]) => `<div class="timeline-item ${alert ? "alert" : ""}"><i class="timeline-dot"></i><small>${label}</small><strong>${shortDate(date)}</strong></div>`).join("");
-
-    $("#amountComparison").innerHTML = `
-      <div class="amount-box"><small>Invoice amount</small><strong>${money(sample.invoiceAmount)}</strong></div>
-      <div class="amount-box"><small>GL amount</small><strong>${money(sample.glAmount)}</strong></div>
-      <div class="amount-box"><small>Difference</small><strong class="${risk.difference ? "amount-difference" : ""}">${money(Math.abs(risk.difference))}</strong></div>`;
-    const differenceEvaluation = $("#differenceEvaluation");
-    differenceEvaluation.className = `difference-evaluation ${risk.difference ? "exception" : ""}`;
-    differenceEvaluation.innerHTML = risk.difference
-      ? `<span><strong>Potential misstatement:</strong> Unexplained ${risk.difference > 0 ? "understatement" : "overstatement"} relative to the invoice. Investigate the cause before disposition.</span><span class="threshold-tag">${Math.abs(risk.difference) < engagement.postingThreshold ? "Below" : "Above"} CTT</span>`
-      : `<span><strong>Difference evaluation:</strong> Invoice agrees to the recorded GL amount.</span><span class="threshold-tag">No difference</span>`;
-
-    $("#riskFindings").innerHTML = risk.findings.length
-      ? risk.findings.map(finding => `<div class="finding flag">${icons.risk}<span><strong>${escapeHtml(finding.label)}:</strong> ${escapeHtml(finding.detail)}</span><span class="finding-points">+${finding.points}</span></div>`).join("")
-      : `<div class="finding clear">${icons.check}<span><strong>No exceptions identified.</strong> Amounts, timing, receipt aging, and evidence passed the configured checks.</span><span class="finding-points">0</span></div>`;
-
-    const reviewPoints = [];
-    if (risk.cutoffDays > 0) reviewPoints.push("Evaluate whether the cutoff exception indicates systematic bias and consider extending testing on both sides of year-end.");
-    if (risk.difference) reviewPoints.push("Obtain a reconciliation for the invoice-to-GL difference and determine whether it represents a factual, judgmental, or projected misstatement.");
-    if (risk.missing.length) reviewPoints.push("Resolve open PBC items or document the alternative procedure performed; inquiry alone is not sufficient appropriate audit evidence.");
-    if (risk.receiptDays > riskRules.delayedCashDays) reviewPoints.push("Corroborate collectibility and consider whether the delay affects the ASC 606 collectibility criterion or expected credit loss assessment.");
-    const reviewContent = reviewPoints.length
-      ? `<ul>${reviewPoints.slice(0, 2).map(point => `<li>${escapeHtml(point)}</li>`).join("")}</ul>`
-      : "Confirm cross-references, tickmarks, and the preparer conclusion before routing this sample for review.";
-    $("#managerReviewPoint").innerHTML = `<div><strong>Manager review focus</strong>${reviewContent}</div>`;
-
-    const availableCount = Object.keys(sample.evidence).length - risk.missing.length;
-    $("#evidenceSummary").textContent = `${availableCount} of ${Object.keys(sample.evidence).length} required documents available`;
-    $("#evidenceList").innerHTML = Object.entries(sample.evidence).map(([key, available], index) => {
-      const meta = evidenceMeta[key];
-      const reference = available ? `${sample.id}-${meta.code}-${String(index + 1).padStart(2, "0")}` : "PBC request open";
-      return `<div class="evidence-item"><i class="check-icon ${available ? "" : "missing"}">${available ? icons.check : icons.cross}</i><span class="evidence-name"><strong>${meta.label}</strong><small>${reference} · ${meta.assertion}</small></span><span class="evidence-state ${available ? "" : "missing"}">${available ? "Available" : "Missing"}</span></div>`;
-    }).join("");
-    const callout = $("#evidenceCallout");
-    callout.className = `evidence-callout ${risk.missing.length ? "incomplete" : "complete"}`;
-    callout.innerHTML = risk.missing.length
-      ? `<strong>Preparer action:</strong> Obtain ${risk.missing.map(item => item.label.toLowerCase()).join(" and ")} before final sign-off.`
-      : "<strong>Evidence ready:</strong> The required package is complete and available for reviewer inspection.";
-
-    const pbcButton = $("#generatePbcButton");
-    pbcButton.disabled = risk.missing.length === 0;
-    pbcButton.textContent = risk.missing.length ? `Generate PBC request (${risk.missing.length})` : "Evidence complete · No PBC required";
-    if (state.pbcSampleId !== sample.id) $("#pbcRequestPanel").hidden = true;
-
-    $("#assertionMatrix").innerHTML = outcome.assertions.map(item => `<article class="assertion-item"><small>${item.category}</small><div class="assertion-item-header"><h3>${item.name}</h3><span class="result-badge ${item.status.toLowerCase()}">${item.status}</span></div><p><strong>${item.procedure}</strong><br>${item.rationale}</p></article>`).join("");
-    $("#outcomeStatusBadge").className = `workflow-badge ${risk.findings.length ? "exception" : "reviewed"}`;
-    $("#outcomeStatusBadge").textContent = risk.findings.length ? "Follow-up required" : "Testing complete";
-    $("#auditOutcomeGrid").innerHTML = [
-      ["Risk score", `${risk.score}/100`, "Rules-based prioritization"],
-      ["Risk level", risk.level, `${risk.level} audit attention`],
-      ["Exception status", outcome.exceptionStatus, risk.findings.length ? "Unresolved" : "Clear"],
-      ["Assertions affected", outcome.affectedAssertions.join(" · ") || "None", outcome.affectedAssertions.length ? "Impact identified" : "No impact"],
-      ["Follow-up required", risk.findings.length ? "Yes" : "No", outcome.followUp]
-    ].map(([label, value, detail]) => `<div class="outcome-item"><small>${label}</small><strong>${escapeHtml(value)}</strong><span>${escapeHtml(detail)}</span></div>`).join("");
-    $("#auditConclusion").innerHTML = `<strong>Audit conclusion:</strong> ${escapeHtml(outcome.conclusion)}`;
-
-    $("#managerReviewStatus").textContent = review.status;
-    $("#managerOpenCount").textContent = review.openComments.length;
-    $("#managerResolvedCount").textContent = review.resolvedComments;
-    $("#managerReviewComments").innerHTML = review.openComments.length
-      ? review.openComments.map((comment, index) => `<div class="review-comment"><span class="comment-index">${index + 1}</span><p>${escapeHtml(comment)}</p><span>Open</span></div>`).join("")
-      : '<div class="review-empty">No open manager review comments.</div>';
-    $("#managerConclusion").textContent = review.conclusion;
-  }
-
-  function setWorkflowStatus(nextStatus) {
-    const sample = selectedSample();
-    if (!sample) {
-      showToast("Select a sample before updating workflow status.");
-      return;
-    }
-    if (nextStatus === "Reviewed") {
-      $("#workflowStatusSelect").value = sample.workflowStatus;
-      showToast("Manager credentials are required to mark a sample reviewed.");
-      return;
-    }
-    if (nextStatus === "Prepared" && sample.risk.missing.length) {
-      $("#workflowStatusSelect").value = sample.workflowStatus;
-      showToast("Resolve missing evidence before marking this sample prepared.");
-      return;
-    }
-    if (nextStatus === "Prepared" && sample.risk.findings.length) {
-      $("#workflowStatusSelect").value = sample.workflowStatus;
-      showToast("Document and resolve exceptions before preparer sign-off.");
-      return;
-    }
-    sample.workflowStatus = nextStatus;
-    invalidateWorkingPaper();
-    saveWorkflowOverrides();
-    renderDashboard();
-    renderSamplesView();
-    showToast(`${sample.id} moved to ${nextStatus}.`);
+    return { status, open, resolved, conclusion };
   }
 
   function buildPbcText(sample) {
-    const missing = sample.risk.missing;
-    return [
-      `PBC Request: PBC-${sample.id}-01`,
-      `Client: ${engagement.client}`,
-      `Sample: ${sample.id} | ${sample.customer} | ${sample.invoice}`,
-      "",
-      "Requested support:",
-      ...missing.map(item => `- ${item.label} (${item.assertion})`),
-      "",
-      `Audit purpose: Obtain sufficient appropriate audit evidence for ${[...new Set(missing.map(item => item.assertion))].join(", ")}.`,
-      "Requested response: Upload the requested support and identify the preparer within 3 business days.",
-      "",
-      "Educational prototype — not sent to a client."
-    ].join("\r\n");
+    if (!sample.risk.missing.length) return "No additional client support is required for this sample.";
+    return `PBC REQUEST — REVENUE SAMPLE ${sample.id}\n\nClient: ${engagement.client}\nCustomer: ${sample.customer}\nInvoice: ${sample.invoiceNumber}\nAmount: ${currency(sample.invoiceAmount)}\nRequested by: ${engagement.preparer.name}, ${engagement.preparer.role}\n\nPlease provide the following support:\n${sample.risk.missing.map((item, index) => `${index + 1}. ${item}`).join("\n")}\n\nPurpose: To complete revenue test-of-details procedures over occurrence, accuracy, and cutoff. Please provide documents that agree to the transaction above and include all relevant dates and terms.\n\nThank you.`;
   }
 
-  function generatePbcRequest(sample) {
-    if (!sample) {
-      showToast("Select a sample before generating a PBC request.");
-      return;
-    }
-    if (!sample.risk.missing.length) {
-      showToast(`${sample.id} has a complete evidence package; no PBC request is required.`);
-      return;
-    }
-    const assertions = [...new Set(sample.risk.missing.map(item => item.assertion))];
-    $("#pbcRequestId").textContent = `PBC-${sample.id}-01`;
-    $("#pbcRequestCustomer").textContent = `${engagement.client} · ${sample.customer} · ${sample.invoice}`;
-    $("#pbcRequestItems").innerHTML = sample.risk.missing.map(item => `<span class="pbc-document">${escapeHtml(item.label)}</span>`).join("");
-    $("#pbcRequestPurpose").textContent = `Obtain sufficient appropriate audit evidence for ${assertions.join(", ")}.`;
-    $("#pbcRequestPanel").hidden = false;
-    state.pbcSampleId = sample.id;
-    state.pbcText = buildPbcText(sample);
-    $("#pbcRequestPanel").scrollIntoView({ behavior: "smooth", block: "start" });
-    showToast(`PBC request drafted for ${sample.id}.`);
-  }
-
-  function downloadPbcRequest() {
-    const sample = selectedSample();
-    if (!sample || state.pbcSampleId !== sample.id || !state.pbcText) {
-      showToast("Generate a PBC request before downloading the draft.");
-      return;
-    }
-    const url = URL.createObjectURL(new Blob([state.pbcText], { type: "text/plain;charset=utf-8" }));
-    const link = Object.assign(document.createElement("a"), { href: url, download: `PBC-${sample.id}-01.txt` });
-    document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(url);
-    showToast(`PBC draft downloaded for ${sample.id}.`);
-  }
-
-  function generateWorkingPaper(sample) {
-    if (!sample) {
-      showToast("Select a sample before generating a working paper.");
-      return;
-    }
-    const { risk } = sample;
+  function buildWorkingPaperText(sample) {
     const outcome = auditOutcome(sample);
-    const review = managerReviewSummary(sample, outcome);
-    const assertions = outcome.assertions;
-    const evidenceReviewed = Object.entries(sample.evidence).filter(([, available]) => available).map(([key]) => evidenceMeta[key].label);
-    const exceptionItems = risk.findings.length
-      ? risk.findings.map(item => `<li><strong>${escapeHtml(item.label)}:</strong> ${escapeHtml(item.detail)}</li>`).join("")
-      : "<li>No exceptions were identified from the procedures performed.</li>";
-    const sections = [
-      ["Objective", "To determine whether the selected revenue transaction occurred, was accurately recorded, was recognized in the appropriate reporting period, and is supported by sufficient appropriate audit evidence."],
-      ["Risk and audit response", `${engagement.significantRisk}. The engagement team adopted a ${engagement.auditApproach.toLowerCase()} approach focused on the occurrence, cutoff, and accuracy assertions, including targeted year-end testing.`],
-      ["Population and selection", `${engagement.populationSource} was reconciled to the trial balance and general ledger. ${sample.id} was selected using ${sample.selectionBasis.toLowerCase()} from ${engagement.populationCount.toLocaleString("en-US")} transactions totaling ${money(engagement.populationValue)}.`],
-      ["Procedure Performed", `Agreed invoice ${sample.invoice} to the general ledger, inspected available contractual and shipping support, compared the recognition date with the shipping date for cutoff, and inspected the subsequent cash receipt. Evaluated occurrence, accuracy, cutoff, collectibility, and evidence sufficiency.`],
-      ["Evidence Reviewed", `<ul>${evidenceReviewed.map(item => `<li>${escapeHtml(item)}</li>`).join("")}${risk.missing.map(item => `<li>${escapeHtml(item.label)} — <strong>not provided</strong></li>`).join("")}</ul>`],
-      ["Difference evaluation", risk.difference ? `A potential ${risk.difference > 0 ? "understatement" : "overstatement"} of ${money(Math.abs(risk.difference))} was identified relative to the invoice. The amount is ${Math.abs(risk.difference) < engagement.postingThreshold ? "below" : "above"} the ${money(engagement.postingThreshold)} clearly trivial threshold; the nature and cause must still be evaluated before disposition.` : "No invoice-to-GL difference was identified."],
-      ["Exceptions Noted", `<ul>${exceptionItems}</ul>`, risk.findings.length ? "exception" : ""],
-      ["Assertion Impact", `<ul>${assertions.map(item => `<li><strong>${item.name} — ${item.status}:</strong> ${escapeHtml(item.rationale)}</li>`).join("")}</ul>`],
-      ["Audit Conclusion", outcome.conclusion, "conclusion"],
-      ["Prepared By", `${engagement.preparer.name} (${engagement.preparer.initials}), ${engagement.preparer.role}.`],
-      ["Reviewed By", `${engagement.reviewer.name} (${engagement.reviewer.initials}), ${engagement.reviewer.role}.`],
-      ["Review Status", `${review.status}. Open comments: ${review.openComments.length}; resolved comments: ${review.resolvedComments}. ${review.conclusion}`]
-    ];
+    const manager = managerReviewSummary(sample);
+    const evidenceReviewed = Object.entries(sample.evidence)
+      .map(([key, available]) => `- ${evidenceLabels[key]}: ${available ? "Reviewed" : "Outstanding"}`)
+      .join("\n");
+    const exceptions = sample.risk.findings.length
+      ? sample.risk.findings.map((finding) => `- ${finding}`).join("\n")
+      : "- No exceptions noted.";
+    const notes = sample.auditNotes || "No associate notes documented.";
 
-    $("#wpSections").innerHTML = sections.map(([title, content, className = ""]) => `<section class="wp-section ${className}"><h3>${title}</h3><div>${content.startsWith("<") ? content : `<p>${escapeHtml(content)}</p>`}</div></section>`).join("");
-    $("#wpSampleId").textContent = sample.id;
-    $("#wpCustomer").textContent = `${sample.customer} · ${sample.invoice} · ${money(sample.invoiceAmount)}`;
-    $("#wpRisk").textContent = `${risk.level} risk · ${risk.score}/100`;
-    $("#preparedDate").textContent = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date());
-    $("#preparerSignoff").textContent = sample.workflowStatus === "Prepared" ? "Prepared" : `Draft · ${sample.workflowStatus}`;
-    $("#wpReviewStatus").textContent = review.status;
-    $("#reviewerSignoffCard").classList.toggle("pending-signoff", sample.workflowStatus !== "Reviewed");
-    $("#workingPaperPlaceholder").hidden = true;
-    $("#workingPaperOutput").hidden = false;
-    state.paperSampleId = sample.id;
-    $("#workingPaperOutput").scrollIntoView({ behavior: "smooth", block: "start" });
-    showToast(`Working paper generated for ${sample.id}.`);
+    return `AUDIT EVIDENCE COPILOT — REVENUE TEST OF DETAILS\nSample ${sample.id} | ${sample.customer}\nPrepared ${today()}\n\nOBJECTIVE\nTo test the occurrence, accuracy, cutoff, existence, valuation, and collectibility of the selected revenue transaction.\n\nPROCEDURE PERFORMED\nSelected invoice ${sample.invoiceNumber} for ${currency(sample.invoiceAmount)} and vouched the recorded revenue entry of ${currency(sample.glAmount)} to source documentation. Compared the revenue recognition date (${formatDate(sample.revenueDate)}) to the shipping date (${formatDate(sample.shippingDate)}), inspected subsequent cash receipt dated ${formatDate(sample.cashReceiptDate)}, and evaluated identified exceptions.\n\nEVIDENCE REVIEWED\n${evidenceReviewed}\n\nEXCEPTIONS NOTED\n${exceptions}\nRisk assessment: ${sample.risk.score}/100 — ${sample.risk.level}\n\nASSERTION IMPACT\n${outcome.assertions.join(", ")}\n\nASSOCIATE NOTES\n${notes}\n\nPBC STATUS\n${sample.pbcStatus}${sample.risk.missing.length ? ` — Outstanding: ${sample.risk.missing.join(", ")}` : ""}\n\nAUDIT CONCLUSION\n${outcome.conclusion}\nFollow-up: ${outcome.followUp}\n\nPREPARED BY\n${engagement.preparer.name} · ${engagement.preparer.role} — ${today()}\n\nREVIEWED BY\n${engagement.reviewer.name} · ${engagement.reviewer.role} — ${sample.workflowStatus === "Reviewed" ? today() : "Pending"}\n\nREVIEW STATUS\n${manager.status}\nOpen comments: ${manager.open.length} | Resolved comments: ${manager.resolved.length}`;
   }
 
-  function exportCSV() {
-    const headers = ["Sample ID", "Customer", "Invoice Number", "Selection Basis", "Workflow Status", "Invoice Amount", "GL Amount", "Potential Difference", "Revenue Recognition Date", "Shipping Date", "Cash Receipt Date", "Evidence Missing", "Risk Score", "Risk Level"];
-    const escapeCsv = value => `"${String(value).replaceAll('"', '""')}"`;
-    const rows = samples.map(sample => [sample.id, sample.customer, sample.invoice, sample.selectionBasis, sample.workflowStatus, sample.invoiceAmount, sample.glAmount, Math.abs(sample.risk.difference), sample.recognitionDate, sample.shippingDate, sample.cashReceiptDate, sample.risk.missing.map(item => item.label).join("; ") || "None", sample.risk.score, sample.risk.level]);
-    const csv = [headers, ...rows].map(row => row.map(escapeCsv).join(",")).join("\r\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const link = Object.assign(document.createElement("a"), { href: url, download: "northstar-revenue-testing.csv" });
-    document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(url);
-    showToast("Revenue testing data exported.");
-  }
-
-  let toastTimer;
-  function showToast(message) {
-    const toast = $("#toast");
-    toast.querySelector("span").textContent = message;
-    toast.classList.add("show");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove("show"), 2800);
-  }
-
-  function applyFilters() {
-    state.riskFilter = $(".filter-button.active").dataset.risk;
-    state.statusFilter = $("#statusFilter").value;
-    state.searchTerm = $("#searchInput").value.trim();
-    renderSamplesView();
-  }
-
-  function resetFilters() {
-    state.riskFilter = "All"; state.statusFilter = "All"; state.searchTerm = "";
-    $("#searchInput").value = ""; $("#statusFilter").value = "All";
-    $$(".filter-button").forEach(button => button.classList.toggle("active", button.dataset.risk === "All"));
-    renderSamplesView();
-  }
-
-  function openSample(id, clearActiveFilters = false) {
-    if (id !== state.selectedId) {
-      invalidateWorkingPaper();
-      invalidatePbcRequest();
+  function refreshGeneratedArtifacts(sample) {
+    sample.risk = assessRisk(sample);
+    if (sample.risk.missing.length) {
+      sample.pbcStatus = "Draft";
+      sample.pbcText = buildPbcText(sample);
+    } else {
+      sample.pbcStatus = "Not Required";
+      sample.pbcText = "";
     }
-    state.selectedId = id;
-    if (clearActiveFilters) {
-      state.riskFilter = "All"; state.statusFilter = "All"; state.searchTerm = "";
-      $("#searchInput").value = ""; $("#statusFilter").value = "All";
-      $$(".filter-button").forEach(button => button.classList.toggle("active", button.dataset.risk === "All"));
-    }
-    renderSamplesView();
-    $("#sampleDetail").scrollIntoView({ behavior: "smooth", block: "start" });
+    syncWorkingPaperSource(sample);
   }
 
-  function bindEvents() {
-    $("#searchInput").addEventListener("input", applyFilters);
-    $("#statusFilter").addEventListener("change", applyFilters);
-    $(".filter-group").addEventListener("click", event => {
-      const button = event.target.closest(".filter-button");
-      if (!button) return;
-      $$(".filter-button").forEach(item => item.classList.toggle("active", item === button));
-      applyFilters();
-    });
-    $("#sampleTableBody").addEventListener("click", event => {
-      const row = event.target.closest("tr[data-id]");
-      if (row) openSample(row.dataset.id);
-    });
-    $("#sampleTableBody").addEventListener("keydown", event => {
-      const row = event.target.closest("tr[data-id]");
-      if (row && ["Enter", " "].includes(event.key)) { event.preventDefault(); openSample(row.dataset.id); }
-    });
-    $("#actionQueue").addEventListener("click", event => {
-      const item = event.target.closest("[data-open-sample]");
-      if (item) openSample(item.dataset.openSample, true);
-    });
-    $("#clearFilters").addEventListener("click", resetFilters);
-    $("#reviewHighRisk").addEventListener("click", () => {
-      state.riskFilter = "High"; state.statusFilter = "All"; state.searchTerm = "";
-      $("#searchInput").value = ""; $("#statusFilter").value = "All";
-      $$(".filter-button").forEach(button => button.classList.toggle("active", button.dataset.risk === "High"));
-      renderSamplesView(); $("#samples").scrollIntoView({ behavior: "smooth" });
-    });
-    $("#workflowStatusSelect").addEventListener("change", event => setWorkflowStatus(event.target.value));
-    $("#riskMethodButton").addEventListener("click", () => {
-      const method = $("#riskMethod"); method.hidden = !method.hidden;
-      $("#riskMethodButton").setAttribute("aria-expanded", String(!method.hidden));
-    });
-    $("#generatePbcButton").addEventListener("click", () => generatePbcRequest(selectedSample()));
-    $("#downloadPbcButton").addEventListener("click", downloadPbcRequest);
-    ["#generatePaperButton", "#generatePlaceholderButton", "#generateFromDetail"].forEach(selector => $(selector).addEventListener("click", () => generateWorkingPaper(selectedSample())));
-    $("#exportButton").addEventListener("click", exportCSV);
-    $("#printButton").addEventListener("click", () => window.print());
-    $("#backToSampleButton").addEventListener("click", () => $("#sampleDetail").scrollIntoView({ behavior: "smooth", block: "start" }));
-    $$('[data-jump]').forEach(button => button.addEventListener("click", () => $(`#${button.dataset.jump}`).scrollIntoView({ behavior: "smooth" })));
+  function syncWorkingPaperSource(sample) {
+    if (!sample.workingPaperDraft) return;
+    sample.workingPaperStatus = "Draft";
+    if (sample.workingPaperCustomized) sample.workingPaperStale = true;
+    else {
+      sample.workingPaperDraft = buildWorkingPaperText(sample);
+      sample.workingPaperStale = false;
+    }
+  }
 
-    const sidebar = $("#sidebar"), scrim = $("#sidebarScrim"), menu = $("#menuButton");
-    const setMenu = open => {
-      sidebar.classList.toggle("open", open); scrim.classList.toggle("open", open);
-      menu.setAttribute("aria-expanded", String(open)); menu.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
+  function showToast(message, type = "success") {
+    const toast = byId("toast");
+    if (!toast) return;
+    const messageNode = toast.querySelector("span");
+    if (messageNode) messageNode.textContent = message;
+    toast.className = `toast show ${type}`;
+    window.clearTimeout(showToast.timeout);
+    showToast.timeout = window.setTimeout(() => { toast.className = "toast"; }, 2600);
+  }
+
+  function renderDashboard() {
+    const high = samples.filter((sample) => sample.risk.level === "High").length;
+    const medium = samples.filter((sample) => sample.risk.level === "Medium").length;
+    const low = samples.filter((sample) => sample.risk.level === "Low").length;
+    const missing = samples.reduce((total, sample) => total + sample.risk.missing.length, 0);
+    const reviewed = samples.filter((sample) => sample.workflowStatus === "Reviewed").length;
+    const ready = samples.filter((sample) => sample.workflowStatus === "Ready for Review").length;
+    const active = samples.filter((sample) => ["Not Started", "In Progress"].includes(sample.workflowStatus)).length;
+    const followUp = samples.filter((sample) => ["Waiting for Client", "Exception Noted"].includes(sample.workflowStatus)).length;
+    const completion = Math.round(((reviewed + ready) / samples.length) * 100);
+
+    const testedValue = samples.reduce((total, sample) => total + sample.invoiceAmount, 0);
+    byId("metricGrid").innerHTML = [
+      ["#1769d2", "#eaf2fc", "Samples selected", samples.length, `${reviewed + ready} ready or reviewed`],
+      ["#b7373f", "#fcebed", "High-risk items", high, `${samples.filter((sample) => sample.risk.findings.length).length} samples with exceptions`],
+      ["#9a5d0b", "#fff2dc", "Missing evidence", missing, `${samples.filter((sample) => sample.risk.missing.length).length} samples affected`],
+      ["#187452", "#e7f5ef", "Value tested", currency(testedValue), `${((testedValue / engagement.populationValue) * 100).toFixed(1)}% of population value`]
+    ].map(([color, pale, label, value, detail]) => `<article class="panel metric-card" style="--metric-color:${color};--metric-pale:${pale}"><div class="metric-top"><span class="metric-label">${label}</span><span class="metric-icon">●</span></div><strong>${value}</strong><p>${detail}</p></article>`).join("");
+    byId("progressPercent").textContent = `${completion}%`;
+    byId("progressBar").style.width = `${completion}%`;
+    byId("progressBar").parentElement.setAttribute("aria-valuenow", completion);
+    byId("progressLegend").innerHTML = [
+      ["#187452", "Reviewed", reviewed], ["#1769d2", "Ready", ready], ["#8a96a6", "Active", active], ["#b7373f", "Follow-up", followUp]
+    ].map(([color, label, value]) => `<span class="legend-item"><i class="legend-dot" style="background:${color}"></i><span>${label} <b>${value}</b></span></span>`).join("");
+    byId("riskBars").innerHTML = [["High", high, "#b7373f"], ["Medium", medium, "#d28a20"], ["Low", low, "#187452"]].map(([label, value, color]) => `<div class="risk-bar-row"><span>${label}</span><span class="mini-bar"><i style="width:${(value / samples.length) * 100}%;background:${color}"></i></span><b>${value}</b></div>`).join("");
+    byId("highRiskButtonCount").textContent = high;
+    byId("navOpenCount").textContent = samples.length - reviewed;
+    byId("workflowProgress").textContent = `${reviewed + ready} of ${samples.length} ready`;
+    byId("sampleCoverage").textContent = `${currency(testedValue)} · ${((testedValue / engagement.populationValue) * 100).toFixed(1)}%`;
+
+    const filterCounts = {
+      allCount: samples.length,
+      highFilterCount: high,
+      missingFilterCount: samples.filter((sample) => sample.risk.missing.length).length,
+      waitingFilterCount: samples.filter((sample) => sample.workflowStatus === "Waiting for Client").length,
+      readyFilterCount: ready,
+      reviewedFilterCount: reviewed
     };
-    menu.addEventListener("click", () => setMenu(!sidebar.classList.contains("open")));
-    scrim.addEventListener("click", () => setMenu(false));
-    $$(".nav-link").forEach(link => link.addEventListener("click", () => setMenu(false)));
-    document.addEventListener("keydown", event => {
-      if (event.key === "Escape") {
-        setMenu(false); $("#riskMethod").hidden = true; $("#riskMethodButton").setAttribute("aria-expanded", "false");
-      }
-    });
+    Object.entries(filterCounts).forEach(([id, value]) => { if (byId(id)) byId(id).textContent = value; });
 
-    const observer = new IntersectionObserver(entries => entries.forEach(entry => {
-      if (entry.isIntersecting) $$(".nav-link[data-section]").forEach(link => link.classList.toggle("active", link.dataset.section === entry.target.id));
-    }), { rootMargin: "-20% 0px -70%" });
-    $$(".page-section").forEach(section => observer.observe(section));
+    const queue = samples.filter((sample) => sample.risk.findings.length || ["Waiting for Client", "Exception Noted"].includes(sample.workflowStatus))
+      .sort((a, b) => b.risk.score - a.risk.score)
+      .slice(0, 5);
+    byId("actionQueue").innerHTML = queue.length ? queue.map((sample) => `
+      <button class="action-item" type="button" data-open-sample="${sample.id}">
+        <span class="action-icon">!</span>
+        <span><strong>${sample.id} · ${escapeHtml(sample.customer)}</strong><span>${sample.risk.missing.length ? `${sample.risk.missing.length} evidence item${sample.risk.missing.length === 1 ? "" : "s"} outstanding` : sample.risk.findings[0]}</span></span>
+        <b>${sample.risk.score} ${sample.risk.level}</b>
+      </button>`).join("") : '<div class="empty-queue">No follow-up items remain.</div>';
   }
 
-  function initializeApp() {
-    state.riskFilter = "All";
-    state.statusFilter = "All";
-    state.searchTerm = "";
-    state.paperSampleId = null;
-    state.pbcSampleId = null;
-    state.pbcText = "";
-    state.selectedId = samples[0]?.id || null;
-    $("#searchInput").value = "";
-    $("#statusFilter").value = "All";
-    $$(".filter-button").forEach(button => button.classList.toggle("active", button.dataset.risk === "All"));
+  function filteredSamples() {
+    const term = state.searchTerm.trim().toLowerCase();
+    return samples.filter((sample) => {
+      const matchesSearch = !term || [sample.id, sample.customer, sample.invoiceNumber].some((value) => value.toLowerCase().includes(term));
+      const matchesFilter = {
+        All: true,
+        "High Risk": sample.risk.level === "High",
+        "Missing Evidence": sample.risk.missing.length > 0,
+        "Waiting for Client": sample.workflowStatus === "Waiting for Client",
+        "Ready for Review": sample.workflowStatus === "Ready for Review",
+        Reviewed: sample.workflowStatus === "Reviewed"
+      }[state.activeFilter];
+      return matchesSearch && matchesFilter;
+    });
+  }
 
-    bindEvents();
+  function reconcileSelection(results) {
+    if (!results.length) {
+      state.selectedId = null;
+      return;
+    }
+    if (!results.some((sample) => sample.id === state.selectedId)) state.selectedId = results[0].id;
+  }
+
+  function renderSamplesView() {
+    const results = filteredSamples();
+    reconcileSelection(results);
+    const body = byId("sampleTableBody");
+    const empty = byId("emptyState");
+    const workspace = byId("sampleDetail");
+
+    body.innerHTML = results.map((sample) => {
+      const outcome = auditOutcome(sample);
+      return `<tr tabindex="0" role="button" aria-label="Open ${sample.id}" data-sample-id="${sample.id}" class="${sample.id === state.selectedId ? "selected" : ""}">
+        <td><span class="sample-id">${sample.id}</span></td>
+        <td><strong>${escapeHtml(sample.customer)}</strong><small>${sample.invoiceNumber}</small></td>
+        <td class="currency">${currency(sample.invoiceAmount)}</td>
+        <td class="currency ${sample.risk.mismatch ? "amount-difference" : ""}">${currency(sample.glAmount)}</td>
+        <td><span>${formatDate(sample.revenueDate)}</span><small>Ship ${formatDate(sample.shippingDate)}</small></td>
+        <td><span class="evidence-count ${sample.risk.missing.length ? "missing" : ""}">${5 - sample.risk.missing.length}/5</span></td>
+        <td><span class="exception-badge ${sample.risk.findings.length ? "open" : ""}">${outcome.exceptionStatus}</span></td>
+        <td><span class="workflow-badge ${slug(sample.workflowStatus)}">${sample.workflowStatus}</span></td>
+        <td><span class="risk-badge ${sample.risk.level.toLowerCase()}">${sample.risk.level}<span class="risk-score">${sample.risk.score}</span></span></td>
+        <td><button class="row-action" type="button" data-open-sample="${sample.id}" aria-label="Open ${sample.id}">›</button></td>
+      </tr>`;
+    }).join("");
+
+    empty.hidden = results.length > 0;
+    workspace.hidden = results.length === 0;
+    byId("tableResultCount").textContent = results.length ? `Showing ${results.length} of ${samples.length} samples` : `No samples match the current filters (0 of ${samples.length})`;
+    if (results.length) renderDetail(getSelectedSample());
+  }
+
+  function renderEvidence(sample) {
+    byId("evidenceList").innerHTML = Object.entries(evidenceLabels).map(([key, label]) => {
+      const available = sample.evidence[key];
+      return `<label class="evidence-item ${available ? "available" : "missing"}">
+        <input class="evidence-toggle" type="checkbox" data-evidence-key="${key}" ${available ? "checked" : ""} aria-label="${label} available">
+        <span class="evidence-icon" aria-hidden="true">${available ? "✓" : "!"}</span>
+        <span class="evidence-copy"><strong>${label}</strong><small>${available ? "Available and inspected" : "Missing — client follow-up required"}</small></span>
+        <span class="evidence-state">${available ? "Available" : "Missing"}</span>
+      </label>`;
+    }).join("");
+
+    const available = 5 - sample.risk.missing.length;
+    byId("evidenceSummary").textContent = `${available} of 5 documents available`;
+    byId("evidenceSummary").className = `panel-summary ${sample.risk.missing.length ? "warning" : "complete"}`;
+    byId("evidenceCallout").className = `evidence-callout ${sample.risk.missing.length ? "warning" : "complete"}`;
+    byId("evidenceCallout").innerHTML = sample.risk.missing.length
+      ? `<span aria-hidden="true">!</span><div><strong>${sample.risk.missing.length} item${sample.risk.missing.length === 1 ? "" : "s"} outstanding</strong><p>Toggle an item when support is received and inspected. Risk and downstream documentation update automatically.</p></div>`
+      : '<span aria-hidden="true">✓</span><div><strong>Evidence set complete</strong><p>All required support has been received and inspected.</p></div>';
+  }
+
+  function renderTransactionAndRisk(sample) {
+    const risk = sample.risk;
+    byId("selectionBasis").textContent = sample.selectionBasis;
+    byId("detailRiskBadge").textContent = `${risk.level} · ${risk.score}/100`;
+    byId("detailRiskBadge").className = `risk-badge ${risk.level.toLowerCase()}`;
+    byId("dateTimeline").innerHTML = [
+      ["Revenue recognized", sample.revenueDate, risk.recognizedBeforeShipment],
+      ["Goods shipped", sample.shippingDate, risk.recognizedBeforeShipment],
+      ["Cash received", sample.cashReceiptDate, risk.delayedCash]
+    ].map(([label, date, alert]) => `<div class="timeline-item ${alert ? "alert" : ""}"><span class="timeline-dot"></span><small>${label}</small><strong>${formatDate(date)}</strong></div>`).join("");
+    byId("amountComparison").innerHTML = `<div class="amount-box"><small>Invoice amount</small><strong>${currency(sample.invoiceAmount)}</strong></div><div class="amount-box"><small>GL amount</small><strong>${currency(sample.glAmount)}</strong></div><div class="amount-box"><small>Difference</small><strong class="${risk.mismatch ? "amount-difference" : ""}">${signedCurrency(risk.difference)}</strong></div>`;
+    byId("differenceEvaluation").className = `difference-evaluation ${risk.mismatch ? "exception" : ""}`;
+    byId("differenceEvaluation").innerHTML = `<span>${risk.mismatch ? "Invoice does not agree to the recorded ledger amount." : "Invoice agrees to the ledger with no difference."}</span><span class="threshold-tag">CTT ${currency(engagement.postingThreshold)}</span>`;
+    const riskRows = [
+      ["Amount agreement", risk.mismatch, risk.mismatch ? `Invoice-to-GL difference is ${signedCurrency(risk.difference)}.` : "Invoice agrees to the GL."],
+      ["Revenue cutoff", risk.recognizedBeforeShipment, risk.recognizedBeforeShipment ? "Revenue was recognized before shipment." : "Revenue recognition follows shipment."],
+      ["Evidence sufficiency", risk.missing.length > 0, risk.missing.length ? `${risk.missing.join(", ")} outstanding.` : "Required evidence is complete."],
+      ["Subsequent receipt", risk.delayedCash, risk.delayedCash ? `Cash was received ${risk.cashDays} days after invoice.` : `Cash was received in ${risk.cashDays} days.`]
+    ];
+    const factorPoints = [risk.points.mismatch, risk.points.cutoff, risk.points.missing, risk.points.delayedCash];
+    byId("riskFindings").innerHTML = riskRows.map(([label, flagged, detail], index) => `<div class="finding ${flagged ? "flag" : "clear"}"><span aria-hidden="true">${flagged ? "!" : "✓"}</span><div><strong>${label}</strong><br>${detail}</div><span class="finding-points">+${factorPoints[index]}</span></div>`).join("");
+    byId("managerReviewPoint").innerHTML = `<div><strong>Preparer focus</strong>${auditOutcome(sample).followUp}</div>`;
+  }
+
+  function renderAssertions(sample) {
+    const descriptions = {
+      Occurrence: "Vouch recorded revenue to customer and source documentation.",
+      Accuracy: "Agree invoice value to the amount recorded in the GL.",
+      Cutoff: "Compare recognition and shipping dates around year-end.",
+      Existence: "Inspect evidence supporting the underlying transaction.",
+      Valuation: "Evaluate settlement and indicators of collectibility.",
+      Collectibility: "Inspect subsequent receipt and aging of the balance."
+    };
+    byId("assertionMatrix").innerHTML = assertionResults(sample).map((assertion, index) => `<div class="assertion-item"><small>Procedure ${index + 1}</small><div class="assertion-item-header"><h3>${assertion.name}</h3><span class="result-badge ${assertion.status === "Affected" ? "exception" : "pass"}">${assertion.status === "Affected" ? "Exception" : "Pass"}</span></div><p>${descriptions[assertion.name]}</p></div>`).join("");
+  }
+
+  function renderAuditOutcome(sample) {
+    const outcome = auditOutcome(sample);
+    byId("outcomeStatusBadge").textContent = outcome.exceptionStatus;
+    byId("outcomeStatusBadge").className = `workflow-badge ${sample.risk.findings.length ? "exception-noted" : "reviewed"}`;
+    byId("auditOutcomeGrid").innerHTML = [
+      ["Risk score", `${sample.risk.score}/100`, sample.risk.level],
+      ["Risk level", sample.risk.level, "Rules-based triage"],
+      ["Exception status", outcome.exceptionStatus, `${sample.risk.findings.length} finding${sample.risk.findings.length === 1 ? "" : "s"}`],
+      ["Assertions affected", outcome.assertions.join(", "), "Financial statement impact"],
+      ["Follow-up required", sample.risk.findings.length ? "Yes" : "No", outcome.followUp]
+    ].map(([label, value, detail]) => `<div class="outcome-item"><small>${label}</small><strong>${value}</strong><span>${detail}</span></div>`).join("");
+    byId("auditConclusion").innerHTML = `<strong>Audit conclusion</strong><br>${outcome.conclusion}`;
+  }
+
+  function renderPbc(sample) {
+    byId("pbcRequestId").textContent = sample.id;
+    byId("pbcRequestCustomer").textContent = sample.customer;
+    byId("pbcStatusBadge").textContent = sample.pbcStatus;
+    byId("pbcStatusBadge").className = `workflow-badge ${slug(sample.pbcStatus)}`;
+    byId("pbcRequestText").value = sample.pbcText;
+    byId("pbcRequestText").placeholder = sample.risk.missing.length ? "Generate the request to populate this draft." : "No additional client support is required.";
+    byId("generatePbcButton").disabled = !sample.risk.missing.length;
+    byId("copyPbcButton").disabled = !sample.pbcText;
+    byId("markPbcSentButton").disabled = !sample.pbcText || ["Sent", "Received"].includes(sample.pbcStatus);
+    byId("markPbcReceivedButton").disabled = sample.pbcStatus !== "Sent";
+  }
+
+  function renderWorkingPaperEditor(sample) {
+    byId("workpaperEditorTitle").textContent = `${sample.id} · ${sample.customer}`;
+    byId("workpaperEditorMeta").textContent = `${sample.invoiceNumber} · ${currency(sample.invoiceAmount)} · ${sample.risk.score}/100 ${sample.risk.level} risk`;
+    byId("workpaperStatusBadge").textContent = sample.workingPaperStatus;
+    byId("workpaperStatusBadge").className = `workflow-badge ${slug(sample.workingPaperStatus)}`;
+    byId("workingPaperEditor").value = sample.workingPaperDraft;
+    byId("workingPaperEditor").placeholder = "Generate a working paper from the active sample, then edit the draft here.";
+    byId("workingPaperEditor").disabled = !sample.workingPaperDraft;
+    byId("saveWorkingPaperButton").disabled = !sample.workingPaperDraft;
+    byId("markReadyForManagerButton").disabled = !sample.workingPaperDraft;
+    byId("workpaperSaveState").textContent = sample.workingPaperStale
+      ? "Saved edits preserved · source data changed — regenerate to refresh"
+      : sample.workingPaperDraft ? "Saved locally" : "No draft generated";
+  }
+
+  function renderManagerReview(sample) {
+    const manager = managerReviewSummary(sample);
+    byId("managerReviewStatus").textContent = manager.status;
+    byId("managerOpenCount").textContent = manager.open.length;
+    byId("managerResolvedCount").textContent = manager.resolved.length;
+    byId("managerConclusion").textContent = manager.conclusion;
+    byId("managerReviewComments").innerHTML = sample.managerComments.length
+      ? sample.managerComments.slice().reverse().map((comment) => `<div class="review-comment ${comment.resolved ? "resolved" : "open"}"><div><strong>${comment.resolved ? "Resolved review point" : "Open review point"}</strong><p>${escapeHtml(comment.text)}</p><small>${escapeHtml(comment.createdAt)}</small></div>${comment.resolved ? '<span class="status-chip reviewed">Resolved</span>' : `<button class="small-button" type="button" data-resolve-comment="${comment.id}">Resolve</button>`}</div>`).join("")
+      : '<div class="review-empty">No manager review comments have been added.</div>';
+  }
+
+  function renderDetail(sample) {
+    if (!sample) return;
+    byId("detailTitle").textContent = `${sample.id} · ${sample.customer}`;
+    byId("detailSubtitle").textContent = `${sample.invoiceNumber} · ${currency(sample.invoiceAmount)}`;
+    byId("currentReviewStatus").textContent = sample.workflowStatus;
+    byId("currentReviewStatus").className = `workflow-badge ${slug(sample.workflowStatus)}`;
+    byId("reviewActionBar").querySelectorAll("[data-status]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.status === sample.workflowStatus);
+    });
+    byId("auditNotesInput").value = sample.auditNotes;
+    byId("noteSaveState").textContent = sample.auditNotes ? "Saved locally" : "No note saved";
+    byId("managerCommentComposer").hidden = true;
+    byId("managerCommentInput").value = "";
+    renderEvidence(sample);
+    renderTransactionAndRisk(sample);
+    renderAssertions(sample);
+    renderAuditOutcome(sample);
+    renderPbc(sample);
+    renderWorkingPaperEditor(sample);
+    renderManagerReview(sample);
+  }
+
+  function renderAll() {
     renderDashboard();
     renderSamplesView();
   }
 
-  initializeApp();
+  function updateReviewStatus(status) {
+    const sample = getSelectedSample();
+    if (!sample) return;
+    if (status === "Ready for Review" && sample.risk.missing.length) {
+      showToast("Receive all required evidence before routing for review.", "error");
+      return;
+    }
+    if (status === "Reviewed") {
+      const manager = managerReviewSummary(sample);
+      if (sample.workflowStatus !== "Ready for Review") {
+        showToast("Mark the sample Ready for Review before manager sign-off.", "error");
+        return;
+      }
+      if (manager.open.length) {
+        showToast("Resolve open manager comments before sign-off.", "error");
+        return;
+      }
+    }
+    sample.workflowStatus = status;
+    if (status === "Waiting for Client" && sample.risk.missing.length) sample.pbcStatus = sample.pbcStatus === "Received" ? "Draft" : sample.pbcStatus;
+    syncWorkingPaperSource(sample);
+    saveState();
+    renderAll();
+    showToast(`Review status updated to ${status}.`);
+  }
+
+  function handleEvidenceChange(event) {
+    const input = event.target.closest("[data-evidence-key]");
+    if (!input) return;
+    const sample = getSelectedSample();
+    if (!sample) return;
+    sample.evidence[input.dataset.evidenceKey] = input.checked;
+    if (["Ready for Review", "Reviewed"].includes(sample.workflowStatus)) sample.workflowStatus = "In Progress";
+    refreshGeneratedArtifacts(sample);
+    saveState();
+    renderAll();
+    showToast(`${evidenceLabels[input.dataset.evidenceKey]} marked ${input.checked ? "available" : "missing"}.`);
+  }
+
+  function saveAuditNote() {
+    const sample = getSelectedSample();
+    if (!sample) return;
+    sample.auditNotes = byId("auditNotesInput").value.trim();
+    syncWorkingPaperSource(sample);
+    saveState();
+    renderWorkingPaperEditor(sample);
+    byId("noteSaveState").textContent = sample.auditNotes ? "Saved locally" : "No note saved";
+    showToast("Audit note saved.");
+  }
+
+  function clearAuditNote() {
+    const sample = getSelectedSample();
+    if (!sample) return;
+    sample.auditNotes = "";
+    byId("auditNotesInput").value = "";
+    syncWorkingPaperSource(sample);
+    saveState();
+    renderWorkingPaperEditor(sample);
+    byId("noteSaveState").textContent = "No note saved";
+    showToast("Audit note cleared.");
+  }
+
+  function generatePbcRequest() {
+    const sample = getSelectedSample();
+    if (!sample || !sample.risk.missing.length) {
+      showToast("No PBC request is required for this sample.", "error");
+      return;
+    }
+    sample.pbcText = buildPbcText(sample);
+    sample.pbcStatus = "Draft";
+    syncWorkingPaperSource(sample);
+    saveState();
+    renderPbc(sample);
+    renderWorkingPaperEditor(sample);
+    showToast("PBC request generated.");
+  }
+
+  async function copyText(value) {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch (error) {
+      const fallback = document.createElement("textarea");
+      fallback.value = value;
+      fallback.style.position = "fixed";
+      fallback.style.opacity = "0";
+      document.body.appendChild(fallback);
+      fallback.select();
+      document.execCommand("copy");
+      fallback.remove();
+    }
+  }
+
+  async function copyPbcRequest() {
+    const sample = getSelectedSample();
+    if (!sample?.pbcText) return;
+    await copyText(sample.pbcText);
+    showToast("PBC request copied to clipboard.");
+  }
+
+  function updatePbcStatus(status) {
+    const sample = getSelectedSample();
+    if (!sample || !sample.pbcText) return;
+    if (status === "Received" && sample.pbcStatus !== "Sent") {
+      showToast("Mark the request sent before marking it received.", "error");
+      return;
+    }
+    sample.pbcStatus = status;
+    sample.workflowStatus = status === "Sent" ? "Waiting for Client" : "In Progress";
+    syncWorkingPaperSource(sample);
+    saveState();
+    renderAll();
+    showToast(`PBC request marked ${status.toLowerCase()}.`);
+  }
+
+  function generateWorkingPaper() {
+    const sample = getSelectedSample();
+    if (!sample) return;
+    sample.workingPaperDraft = buildWorkingPaperText(sample);
+    sample.workingPaperStatus = "Draft";
+    sample.workingPaperCustomized = false;
+    sample.workingPaperStale = false;
+    saveState();
+    renderWorkingPaperEditor(sample);
+    byId("working-paper").scrollIntoView({ behavior: "smooth", block: "start" });
+    showToast("Working paper draft generated.");
+  }
+
+  function saveWorkingPaper() {
+    const sample = getSelectedSample();
+    if (!sample) return;
+    sample.workingPaperDraft = byId("workingPaperEditor").value.trim();
+    sample.workingPaperStatus = sample.workingPaperDraft ? "Draft" : "Not Started";
+    sample.workingPaperCustomized = Boolean(sample.workingPaperDraft);
+    sample.workingPaperStale = false;
+    saveState();
+    renderWorkingPaperEditor(sample);
+    showToast("Working paper saved locally.");
+  }
+
+  function markReadyForManager() {
+    const sample = getSelectedSample();
+    if (!sample) return;
+    if (sample.risk.missing.length) {
+      showToast("Outstanding evidence must be resolved before manager review.", "error");
+      return;
+    }
+    if (sample.workingPaperStale) {
+      showToast("Save an updated draft or regenerate before manager review.", "error");
+      return;
+    }
+    sample.workingPaperDraft = byId("workingPaperEditor").value.trim();
+    if (!sample.workingPaperDraft) return;
+    sample.workingPaperStatus = "Ready for Manager Review";
+    sample.workingPaperCustomized = true;
+    sample.workingPaperStale = false;
+    sample.workflowStatus = "Ready for Review";
+    saveState();
+    renderAll();
+    showToast("Working paper routed for manager review.");
+  }
+
+  function addManagerComment() {
+    const composer = byId("managerCommentComposer");
+    composer.hidden = false;
+    byId("managerCommentInput").focus();
+  }
+
+  function saveManagerComment() {
+    const sample = getSelectedSample();
+    const text = byId("managerCommentInput").value.trim();
+    if (!sample || !text) {
+      showToast("Enter a review comment before saving.", "error");
+      return;
+    }
+    sample.managerComments.push({
+      id: `MC-${Date.now()}`,
+      text,
+      resolved: false,
+      createdAt: new Date().toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
+    });
+    saveState();
+    byId("managerCommentInput").value = "";
+    byId("managerCommentComposer").hidden = true;
+    renderManagerReview(sample);
+    syncWorkingPaperSource(sample);
+    saveState();
+    renderWorkingPaperEditor(sample);
+    showToast("Manager review comment saved.");
+  }
+
+  function resolveManagerComment(commentId) {
+    const sample = getSelectedSample();
+    const comment = sample?.managerComments.find((item) => item.id === commentId);
+    if (!comment) return;
+    comment.resolved = true;
+    saveState();
+    renderManagerReview(sample);
+    syncWorkingPaperSource(sample);
+    saveState();
+    renderWorkingPaperEditor(sample);
+    showToast("Manager review comment resolved.");
+  }
+
+  function openSample(sampleId) {
+    const sample = samples.find((item) => item.id === sampleId);
+    if (!sample) return;
+    state.selectedId = sampleId;
+    renderSamplesView();
+    byId("sampleDetail").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function resetFilters() {
+    state.activeFilter = "All";
+    state.searchTerm = "";
+    byId("searchInput").value = "";
+    document.querySelectorAll(".filter-button").forEach((button) => button.classList.toggle("active", button.dataset.filter === "All"));
+    renderSamplesView();
+  }
+
+  function exportPopulation() {
+    const headers = ["Sample ID", "Customer", "Invoice", "Invoice Amount", "GL Amount", "Recognition Date", "Shipping Date", "Cash Receipt Date", "Evidence Available", "Risk Score", "Risk Level", "Review Status"];
+    const rows = samples.map((sample) => [sample.id, sample.customer, sample.invoiceNumber, sample.invoiceAmount, sample.glAmount, sample.revenueDate, sample.shippingDate, sample.cashReceiptDate, `${5 - sample.risk.missing.length}/5`, sample.risk.score, sample.risk.level, sample.workflowStatus]);
+    const csv = [headers, ...rows].map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "audit-evidence-copilot-revenue-samples.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast("Sample population exported.");
+  }
+
+  function bindEvents() {
+    document.querySelectorAll(".nav-link[data-section]").forEach((button) => button.addEventListener("click", () => {
+      document.querySelectorAll(".nav-link").forEach((item) => item.classList.remove("active"));
+      button.classList.add("active");
+    }));
+
+    document.querySelectorAll(".filter-button").forEach((button) => button.addEventListener("click", () => {
+      state.activeFilter = button.dataset.filter;
+      document.querySelectorAll(".filter-button").forEach((item) => item.classList.toggle("active", item === button));
+      renderSamplesView();
+    }));
+
+    byId("searchInput").addEventListener("input", (event) => { state.searchTerm = event.target.value; renderSamplesView(); });
+    byId("clearFilters").addEventListener("click", resetFilters);
+    byId("sampleTableBody").addEventListener("click", (event) => {
+      const target = event.target.closest("[data-open-sample], tr[data-sample-id]");
+      if (target) openSample(target.dataset.openSample || target.dataset.sampleId);
+    });
+    byId("sampleTableBody").addEventListener("keydown", (event) => {
+      if (["Enter", " "].includes(event.key) && event.target.matches("tr[data-sample-id]")) {
+        event.preventDefault();
+        openSample(event.target.dataset.sampleId);
+      }
+    });
+    byId("actionQueue").addEventListener("click", (event) => {
+      const target = event.target.closest("[data-open-sample]");
+      if (target) openSample(target.dataset.openSample);
+    });
+    byId("reviewActionBar").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-status]");
+      if (button) updateReviewStatus(button.dataset.status);
+    });
+    byId("evidenceList").addEventListener("change", handleEvidenceChange);
+    byId("saveNoteButton").addEventListener("click", saveAuditNote);
+    byId("clearNoteButton").addEventListener("click", clearAuditNote);
+    byId("generatePbcButton").addEventListener("click", generatePbcRequest);
+    byId("jumpToPbcButton").addEventListener("click", () => byId("pbcRequestPanel").scrollIntoView({ behavior: "smooth", block: "center" }));
+    byId("copyPbcButton").addEventListener("click", copyPbcRequest);
+    byId("markPbcSentButton").addEventListener("click", () => updatePbcStatus("Sent"));
+    byId("markPbcReceivedButton").addEventListener("click", () => updatePbcStatus("Received"));
+    ["generatePaperButton", "generateFromDetail"].forEach((id) => byId(id).addEventListener("click", generateWorkingPaper));
+    byId("workingPaperEditor").addEventListener("input", () => { byId("workpaperSaveState").textContent = "Unsaved changes"; });
+    byId("saveWorkingPaperButton").addEventListener("click", saveWorkingPaper);
+    byId("markReadyForManagerButton").addEventListener("click", markReadyForManager);
+    byId("addManagerCommentButton").addEventListener("click", addManagerComment);
+    byId("saveManagerCommentButton").addEventListener("click", saveManagerComment);
+    byId("cancelManagerCommentButton").addEventListener("click", () => {
+      byId("managerCommentInput").value = "";
+      byId("managerCommentComposer").hidden = true;
+    });
+    byId("managerReviewComments").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-resolve-comment]");
+      if (button) resolveManagerComment(button.dataset.resolveComment);
+    });
+    byId("riskMethodButton").addEventListener("click", () => {
+      const method = byId("riskMethod");
+      method.hidden = !method.hidden;
+      byId("riskMethodButton").setAttribute("aria-expanded", String(!method.hidden));
+    });
+    document.querySelectorAll("[data-jump]").forEach((button) => button.addEventListener("click", () => byId(button.dataset.jump)?.scrollIntoView({ behavior: "smooth", block: "start" })));
+    byId("reviewHighRisk").addEventListener("click", () => {
+      state.activeFilter = "High Risk";
+      document.querySelectorAll(".filter-button").forEach((button) => button.classList.toggle("active", button.dataset.filter === "High Risk"));
+      renderSamplesView();
+      byId("samples").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    byId("exportButton").addEventListener("click", exportPopulation);
+    byId("menuButton").addEventListener("click", () => {
+      const open = !byId("sidebar").classList.contains("open");
+      byId("sidebar").classList.toggle("open", open);
+      byId("sidebarScrim").classList.toggle("open", open);
+      byId("menuButton").setAttribute("aria-expanded", String(open));
+    });
+    byId("sidebarScrim").addEventListener("click", () => {
+      byId("sidebar").classList.remove("open");
+      byId("sidebarScrim").classList.remove("open");
+      byId("menuButton").setAttribute("aria-expanded", "false");
+    });
+  }
+
+  function initialize() {
+    state.selectedId = samples.some((sample) => sample.id === DEFAULT_SAMPLE_ID) ? DEFAULT_SAMPLE_ID : samples[0]?.id || null;
+    state.activeFilter = "All";
+    state.searchTerm = "";
+    byId("searchInput").value = "";
+    bindEvents();
+    renderAll();
+  }
+
+  document.addEventListener("DOMContentLoaded", initialize);
 })();

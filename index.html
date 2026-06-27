@@ -6,7 +6,7 @@
   <meta name="description" content="Audit Evidence Copilot — an enterprise-style revenue audit workflow portfolio project.">
   <meta name="theme-color" content="#0c2340">
   <title>Revenue Testing | Audit Evidence Copilot</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
   <a class="skip-link" href="#mainContent">Skip to main content</a>
@@ -48,7 +48,7 @@
 
       <div class="sidebar-footer">
         <div class="environment-badge"><span class="status-dot"></span><span><strong>Prototype workspace</strong><small>Local data · No client records</small></span></div>
-        <div class="user-card"><span class="avatar">AM</span><span><strong>Alex Morgan</strong><small>Audit Senior</small></span><button class="quiet-icon" aria-label="User menu">•••</button></div>
+        <div class="user-card"><span class="avatar">AM</span><span><strong>Alex Morgan</strong><small>Audit Associate</small></span><button class="quiet-icon" aria-label="User menu">•••</button></div>
       </div>
     </aside>
 
@@ -84,9 +84,9 @@
           <ol class="workflow-guide" aria-label="Sample testing workflow">
             <li><span>1</span><strong>Select sample</strong></li>
             <li><span>2</span><strong>Review evidence</strong></li>
-            <li><span>3</span><strong>Assess risk</strong></li>
-            <li><span>4</span><strong>Generate PBC request</strong></li>
-            <li><span>5</span><strong>Generate working paper</strong></li>
+            <li><span>3</span><strong>Add notes</strong></li>
+            <li><span>4</span><strong>Generate PBC</strong></li>
+            <li><span>5</span><strong>Draft workpaper</strong></li>
             <li><span>6</span><strong>Manager review</strong></li>
           </ol>
 
@@ -158,13 +158,14 @@
           <div class="toolbar panel">
             <label class="search-box" for="searchInput"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" id="searchInput" aria-label="Search revenue samples" placeholder="Search sample, customer, or invoice" autocomplete="off"></label>
             <div class="filter-controls">
-              <div class="filter-group" aria-label="Filter samples by risk">
-                <button class="filter-button active" data-risk="All">All <span id="allCount">10</span></button>
-                <button class="filter-button" data-risk="High">High</button>
-                <button class="filter-button" data-risk="Medium">Medium</button>
-                <button class="filter-button" data-risk="Low">Low</button>
+              <div class="filter-group workbench-filters" aria-label="Filter revenue samples">
+                <button class="filter-button active" data-filter="All">All <span id="allCount">10</span></button>
+                <button class="filter-button" data-filter="High Risk">High risk <span id="highFilterCount">0</span></button>
+                <button class="filter-button" data-filter="Missing Evidence">Missing evidence <span id="missingFilterCount">0</span></button>
+                <button class="filter-button" data-filter="Waiting for Client">Waiting for client <span id="waitingFilterCount">0</span></button>
+                <button class="filter-button" data-filter="Ready for Review">Ready for review <span id="readyFilterCount">0</span></button>
+                <button class="filter-button" data-filter="Reviewed">Reviewed <span id="reviewedFilterCount">0</span></button>
               </div>
-              <label class="select-control"><span class="sr-only">Filter by workflow status</span><select id="statusFilter"><option value="All">All workflow statuses</option><option>Awaiting evidence</option><option>Exception</option><option>In progress</option><option>Prepared</option><option>Reviewed</option></select><svg viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg></label>
             </div>
           </div>
 
@@ -182,7 +183,15 @@
           <div class="detail-workspace" id="sampleDetail" hidden>
             <div class="detail-topbar">
               <div><span class="selection-label">Selected sample</span><strong id="detailTitle">—</strong><span id="detailSubtitle">—</span></div>
-              <div class="detail-actions"><label class="status-update"><span>Workflow status</span><select id="workflowStatusSelect" aria-label="Workflow status"><option>In progress</option><option>Awaiting evidence</option><option>Exception</option><option>Prepared</option><option>Reviewed</option></select></label><button class="primary-button" id="generateFromDetail">Generate working paper</button></div>
+              <div class="detail-actions"><span id="currentReviewStatus" class="workflow-badge">Not Started</span><button class="primary-button" id="generateFromDetail">Generate working paper</button></div>
+            </div>
+            <div class="review-action-bar" id="reviewActionBar" aria-label="Sample review actions">
+              <span>Update review status</span>
+              <button data-status="In Progress">Start Review</button>
+              <button data-status="Waiting for Client">Mark Waiting for Client</button>
+              <button data-status="Exception Noted">Mark Exception Noted</button>
+              <button data-status="Ready for Review">Mark Ready for Review</button>
+              <button data-status="Reviewed">Mark Reviewed</button>
             </div>
 
             <div class="detail-grid">
@@ -199,7 +208,7 @@
                 <div class="panel-heading"><div><span class="panel-kicker">PBC EVIDENCE</span><h2>Evidence checklist</h2><p id="evidenceSummary">—</p></div><span class="document-icon"><svg viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6zM14 2v5h5"/></svg></span></div>
                 <div class="evidence-list" id="evidenceList"></div>
                 <div class="evidence-callout" id="evidenceCallout"></div>
-                <button class="secondary-button evidence-action" id="generatePbcButton">Generate PBC request</button>
+                <button class="secondary-button evidence-action" id="jumpToPbcButton">Open PBC workflow</button>
               </article>
             </div>
 
@@ -208,16 +217,23 @@
               <div class="assertion-table" id="assertionMatrix"></div>
             </article>
 
+            <article class="panel audit-notes-panel">
+              <div class="panel-heading"><div><span class="panel-kicker">PREPARER DOCUMENTATION</span><h2>Audit notes</h2><p>Capture procedures, explanations, and follow-up performed for this sample.</p></div><span class="note-save-state" id="noteSaveState">Not saved</span></div>
+              <label class="sr-only" for="auditNotesInput">Audit notes for selected sample</label>
+              <textarea id="auditNotesInput" rows="5" placeholder="Document the work performed, client explanations, and your evaluation…"></textarea>
+              <div class="notes-actions"><button class="primary-button" id="saveNoteButton">Save note</button><button class="secondary-button" id="clearNoteButton">Clear note</button></div>
+            </article>
+
             <article class="panel audit-outcome-panel">
               <div class="panel-heading"><div><span class="panel-kicker">AUDIT OUTCOME</span><h2>Sample assessment</h2><p>Consolidated result from transaction testing, evidence, and exception evaluation.</p></div><span id="outcomeStatusBadge" class="workflow-badge">—</span></div>
               <div class="outcome-grid" id="auditOutcomeGrid"></div>
               <div class="outcome-conclusion" id="auditConclusion"></div>
             </article>
 
-            <article class="panel pbc-request-panel" id="pbcRequestPanel" hidden>
-              <header class="pbc-header"><div><span class="panel-kicker">CLIENT REQUEST · DRAFT</span><h2 id="pbcRequestId">PBC-REV</h2><p id="pbcRequestCustomer">—</p></div><span class="workflow-badge prepared">Draft</span></header>
-              <div class="pbc-body"><div><small>Requested support</small><div id="pbcRequestItems"></div></div><div><small>Audit purpose</small><p id="pbcRequestPurpose"></p></div><div><small>Requested response</small><p>Upload the requested support and identify the preparer within 3 business days.</p></div></div>
-              <footer class="pbc-footer"><span>This request is generated locally and is not sent to the client.</span><button class="secondary-button" id="downloadPbcButton"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg> Download draft</button></footer>
+            <article class="panel pbc-request-panel" id="pbcRequestPanel">
+              <header class="pbc-header"><div><span class="panel-kicker">CLIENT REQUEST</span><h2 id="pbcRequestId">PBC request</h2><p id="pbcRequestCustomer">Select missing evidence to create a request.</p></div><span class="workflow-badge" id="pbcStatusBadge">Not Required</span></header>
+              <textarea id="pbcRequestText" rows="9" readonly aria-label="Generated PBC request"></textarea>
+              <footer class="pbc-footer"><span>This prototype records status locally and does not send client communications.</span><div><button class="secondary-button" id="generatePbcButton">Generate PBC Request</button><button class="secondary-button" id="copyPbcButton">Copy PBC Request</button><button class="secondary-button" id="markPbcSentButton">Mark PBC Sent</button><button class="secondary-button" id="markPbcReceivedButton">Mark PBC Received</button></div></footer>
             </article>
 
             <article class="panel manager-review-panel" id="managerReviewPanel">
@@ -228,6 +244,8 @@
                 <div><small>Resolved comments</small><strong id="managerResolvedCount">0</strong></div>
               </div>
               <div class="review-comments" id="managerReviewComments"></div>
+              <div class="manager-comment-composer" id="managerCommentComposer" hidden><label for="managerCommentInput">New manager comment</label><textarea id="managerCommentInput" rows="3" placeholder="Enter a review comment…"></textarea><div><button class="primary-button" id="saveManagerCommentButton">Save comment</button><button class="secondary-button" id="cancelManagerCommentButton">Cancel</button></div></div>
+              <button class="secondary-button add-comment-button" id="addManagerCommentButton">Add manager comment</button>
               <div class="manager-conclusion"><small>Manager conclusion</small><p id="managerConclusion">—</p></div>
             </article>
           </div>
@@ -236,24 +254,14 @@
         <section class="page-section" id="working-paper">
           <div class="section-heading">
             <div><p class="eyebrow">Documentation · REV-01</p><h2>Working paper</h2><p>Generate a structured memo from the selected sample and retain preparer judgment.</p></div>
-            <button class="primary-button" id="generatePaperButton">Generate working paper</button>
+            <button class="primary-button" id="generatePaperButton">Generate Working Paper</button>
           </div>
 
-          <div class="working-paper-placeholder panel" id="workingPaperPlaceholder">
-            <span class="paper-illustration"><svg viewBox="0 0 64 64"><path d="M16 6h25l9 9v43H16z"/><path d="M40 6v11h10M24 27h18M24 35h18M24 43h12"/></svg></span>
-            <div><span class="panel-kicker">DOCUMENTATION READY</span><h3>Generate a sample testing memo</h3><p>The working paper will incorporate transaction details, evidence status, assertion results, exceptions, and a risk-responsive conclusion.</p></div>
-            <button class="secondary-button" id="generatePlaceholderButton">Generate for selected sample</button>
-          </div>
-
-          <article class="working-paper" id="workingPaperOutput" hidden>
-            <header class="wp-header">
-              <div><span class="overline">NORTHSTAR TECHNOLOGIES, INC. · NST-2025-AUD</span><h2>Revenue Test of Details</h2><p>Year ended December 31, 2025</p></div>
-              <dl><div><dt>WP reference</dt><dd>REV-01</dd></div><div><dt>Prepared by</dt><dd>AM</dd></div><div><dt>Prepared date</dt><dd id="preparedDate"></dd></div></dl>
-            </header>
-            <div class="wp-sample-banner"><span>Sample selected</span><strong id="wpSampleId"></strong><span id="wpCustomer"></span><span id="wpRisk"></span></div>
-            <div class="wp-sections" id="wpSections"></div>
-            <div class="signoff-grid"><div><span class="avatar">AM</span><p><small>Prepared by</small><strong>Alex Morgan</strong><em id="preparerSignoff">Draft generated</em></p></div><div class="pending-signoff" id="reviewerSignoffCard"><span class="avatar">JL</span><p><small>Reviewed by</small><strong>Jordan Lee</strong><em id="wpReviewStatus">Pending manager review</em></p></div></div>
-            <footer class="wp-footer"><span>Generated from fictional data · Professional judgment required</span><div><button class="secondary-button" id="backToSampleButton">Back to sample</button><button class="secondary-button" id="printButton"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4V9h16v9h-2M7 14h10v7H7z"/></svg> Print / Save PDF</button></div></footer>
+          <article class="panel workpaper-editor" id="workingPaperEditorPanel">
+            <header><div><span class="panel-kicker">REV-01 · EDITABLE DRAFT</span><h3 id="workpaperEditorTitle">No working paper generated</h3><p id="workpaperEditorMeta">Select a sample and generate a working paper to begin.</p></div><span class="workflow-badge" id="workpaperStatusBadge">Not Started</span></header>
+            <label class="sr-only" for="workingPaperEditor">Editable working paper draft</label>
+            <textarea id="workingPaperEditor" rows="28" placeholder="Generate a working paper for the selected sample…"></textarea>
+            <footer><span id="workpaperSaveState">No saved draft</span><div><button class="secondary-button" id="saveWorkingPaperButton">Save Working Paper</button><button class="primary-button" id="markReadyForManagerButton">Mark Ready for Manager Review</button></div></footer>
           </article>
         </section>
       </main>
@@ -263,7 +271,7 @@
   <div class="sidebar-scrim" id="sidebarScrim"></div>
   <div class="toast" id="toast" role="status" aria-live="polite"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg><span></span></div>
 
-  <script src="data.js"></script>
-  <script src="script.js"></script>
+  <script src="data.js?v=8"></script>
+  <script src="script.js?v=8"></script>
 </body>
 </html>
