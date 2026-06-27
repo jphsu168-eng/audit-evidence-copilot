@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Audit Evidence Copilot — an enterprise-style revenue audit workflow portfolio project.">
+  <meta name="theme-color" content="#0c2340">
+  <title>Revenue Testing | Audit Evidence Copilot</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#mainContent">Skip to main content</a>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Application navigation">
+      <a class="brand" href="#overview" aria-label="Audit Evidence Copilot home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 3 4 7v5c0 4.8 3.1 7.8 8 9 4.9-1.2 8-4.2 8-9V7l-8-4Z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></svg>
+        </span>
+        <span><strong>Audit Evidence</strong><small>Copilot</small></span>
+      </a>
+
+      <div class="engagement-nav-card">
+        <span class="client-monogram">N</span>
+        <span><small>Active engagement</small><strong>Northstar Technologies</strong><em>NST-2025-AUD</em></span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 10 3 3 3-3"/></svg>
+      </div>
+
+      <nav class="main-nav" aria-label="Primary navigation">
+        <span class="nav-label">Workspace</span>
+        <a class="nav-link active" href="#overview" data-section="overview">
+          <svg viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
+          <span>Overview</span>
+        </a>
+        <a class="nav-link" href="#samples" data-section="samples">
+          <svg viewBox="0 0 24 24"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg>
+          <span>Sample testing</span><span class="nav-count" id="navOpenCount">0</span>
+        </a>
+        <a class="nav-link" href="#working-paper" data-section="working-paper">
+          <svg viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"/></svg>
+          <span>Documentation</span>
+        </a>
+        <span class="nav-label nav-label-spaced">Engagement</span>
+        <a class="nav-link nav-link-muted" href="#engagement-details">
+          <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg>
+          <span>Planning details</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="environment-badge"><span class="status-dot"></span><span><strong>Prototype workspace</strong><small>Local data · No client records</small></span></div>
+        <div class="user-card"><span class="avatar">AM</span><span><strong>Alex Morgan</strong><small>Audit Senior</small></span><button class="quiet-icon" aria-label="User menu">•••</button></div>
+      </div>
+    </aside>
+
+    <div class="main-wrap">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button menu-button" id="menuButton" aria-label="Open navigation" aria-expanded="false">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </button>
+          <div class="breadcrumbs" aria-label="Breadcrumb"><span>Northstar Technologies</span><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg><strong>Revenue</strong></div>
+        </div>
+        <div class="topbar-actions">
+          <span class="autosave-state"><svg viewBox="0 0 24 24"><path d="M7 18a5 5 0 1 1 1-9.9A7 7 0 0 1 21 12a4 4 0 0 1-4 4H9"/><path d="m10 13 2 2 4-4"/></svg> Saved locally</span>
+          <span class="status-chip"><span class="status-dot"></span> Fieldwork</span>
+          <button class="icon-button" aria-label="Notifications"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><span class="notification-dot"></span></button>
+        </div>
+      </header>
+
+      <main id="mainContent" tabindex="-1">
+        <section class="page-section" id="overview">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">Revenue · Substantive testing</p>
+              <h1>Testing overview</h1>
+              <p>Monitor evidence readiness, resolve exceptions, and complete sample documentation.</p>
+            </div>
+            <div class="heading-actions">
+              <button class="secondary-button" id="exportButton"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg> Export population</button>
+              <button class="primary-button" id="reviewHighRisk">Review exceptions <span id="highRiskButtonCount">0</span></button>
+            </div>
+          </div>
+
+          <div class="engagement-card" id="engagement-details">
+            <div class="engagement-title">
+              <span class="company-logo">N</span>
+              <div><span class="overline">NST-2025-AUD · US GAAP</span><h2>Northstar Technologies, Inc.</h2><p>Revenue — ASC 606 <span class="separator">•</span> Year ended December 31, 2025</p></div>
+            </div>
+            <dl class="engagement-facts">
+              <div><dt>Overall materiality</dt><dd>$500,000</dd></div>
+              <div><dt>Performance materiality</dt><dd>$375,000</dd></div>
+              <div><dt>Clearly trivial threshold</dt><dd>$25,000</dd></div>
+              <div><dt>Population</dt><dd>$28.45M <small>1,842 items</small></dd></div>
+            </dl>
+          </div>
+
+          <div class="workflow-strip" aria-label="Audit workflow status">
+            <div class="workflow-step complete"><span>1</span><div><small>Planning</small><strong>Complete</strong></div></div>
+            <i></i>
+            <div class="workflow-step complete"><span>2</span><div><small>Sample selection</small><strong>10 selected</strong></div></div>
+            <i></i>
+            <div class="workflow-step active"><span>3</span><div><small>Evidence & testing</small><strong id="workflowProgress">In progress</strong></div></div>
+            <i></i>
+            <div class="workflow-step"><span>4</span><div><small>Manager review</small><strong>Not started</strong></div></div>
+          </div>
+
+          <article class="audit-strategy" aria-label="Audit strategy">
+            <div class="strategy-lead"><span class="strategy-icon"><svg viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5M12 18h.01"/></svg></span><span><small>Significant risk (RMM)</small><strong>Presumed fraud risk related to revenue recognition</strong></span></div>
+            <dl>
+              <div><dt>Audit approach</dt><dd>Primarily substantive</dd></div>
+              <div><dt>Relevant assertions</dt><dd>Occurrence · Cutoff · Accuracy</dd></div>
+              <div><dt>Population status</dt><dd><span class="inline-check">✓</span> Reconciled to TB / GL</dd></div>
+              <div><dt>Cutoff window</dt><dd>Dec 18, 2025 – Jan 6, 2026</dd></div>
+            </dl>
+          </article>
+
+          <div class="metric-grid" id="metricGrid" aria-label="Engagement summary metrics"></div>
+
+          <div class="overview-grid">
+            <article class="panel progress-panel">
+              <div class="panel-heading"><div><span class="panel-kicker">WORKFLOW</span><h2>Testing progress</h2><p>Completion by sample status</p></div><strong id="progressPercent">0%</strong></div>
+              <div class="large-progress" role="progressbar" aria-label="Testing completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="progressBar"></span></div>
+              <div class="progress-legend" id="progressLegend"></div>
+            </article>
+            <article class="panel risk-overview">
+              <div class="panel-heading"><div><span class="panel-kicker">RISK ENGINE</span><h2>Risk distribution</h2><p>Rules-based assessment across selected items</p></div><button class="text-button" data-jump="samples">Open testing</button></div>
+              <div class="risk-bars" id="riskBars"></div>
+            </article>
+            <article class="panel action-panel">
+              <div class="panel-heading"><div><span class="panel-kicker">ACTION QUEUE</span><h2>Items requiring attention</h2><p>Prioritized for preparer follow-up</p></div></div>
+              <div class="action-list" id="actionQueue"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="page-section" id="samples">
+          <div class="section-heading">
+            <div><p class="eyebrow">REV-01 · Test of details</p><h2>Revenue sample testing</h2><p>Evaluate occurrence, accuracy, cutoff, collectibility, and evidence sufficiency.</p></div>
+            <div class="section-meta"><span><small>Selection method</small><strong>Nonstatistical random + targeted</strong></span><span><small>Sample coverage</small><strong id="sampleCoverage">—</strong></span></div>
+          </div>
+
+          <div class="testing-context-bar">
+            <span><small>Population source</small><strong>REV_POP_2025_v3</strong></span>
+            <span><small>Completeness & accuracy</small><strong><i class="inline-check">✓</i> Agreed to trial balance</strong></span>
+            <span><small>Nature / timing / extent</small><strong>Inspection · recalculation · year-end cutoff</strong></span>
+            <span><small>Sampling approach</small><strong>Nonstatistical · random + targeted</strong></span>
+          </div>
+
+          <div class="toolbar panel">
+            <label class="search-box" for="searchInput"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" id="searchInput" aria-label="Search revenue samples" placeholder="Search sample, customer, or invoice" autocomplete="off"></label>
+            <div class="filter-controls">
+              <div class="filter-group" aria-label="Filter samples by risk">
+                <button class="filter-button active" data-risk="All">All <span id="allCount">10</span></button>
+                <button class="filter-button" data-risk="High">High</button>
+                <button class="filter-button" data-risk="Medium">Medium</button>
+                <button class="filter-button" data-risk="Low">Low</button>
+              </div>
+              <label class="select-control"><span class="sr-only">Filter by workflow status</span><select id="statusFilter"><option value="All">All workflow statuses</option><option>Awaiting evidence</option><option>Exception</option><option>In progress</option><option>Prepared</option><option>Reviewed</option></select><svg viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg></label>
+            </div>
+          </div>
+
+          <div class="table-card panel">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th scope="col">Sample</th><th scope="col">Customer / invoice</th><th scope="col" class="numeric">Invoice amount</th><th scope="col" class="numeric">GL amount</th><th scope="col">Recognition / ship</th><th scope="col">Evidence</th><th scope="col">Workflow</th><th scope="col">Risk</th><th scope="col"><span class="sr-only">Open sample</span></th></tr></thead>
+                <tbody id="sampleTableBody"></tbody>
+              </table>
+              <div class="empty-state" id="emptyState" hidden><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><strong>No samples found</strong><span>Adjust your search or filters and try again.</span><button class="text-button" id="clearFilters">Clear filters</button></div>
+            </div>
+            <div class="table-footer"><span id="tableResultCount">Showing 10 of 10 samples</span><span>Amounts in USD · Click a row to inspect</span></div>
+          </div>
+
+          <div class="detail-workspace" id="sampleDetail">
+            <div class="detail-topbar">
+              <div><span class="selection-label">Selected sample</span><strong id="detailTitle">—</strong><span id="detailSubtitle">—</span></div>
+              <div class="detail-actions"><label class="status-update"><span>Workflow status</span><select id="workflowStatusSelect" aria-label="Workflow status"><option>In progress</option><option>Awaiting evidence</option><option>Exception</option><option>Prepared</option><option>Reviewed</option></select></label><button class="primary-button" id="generateFromDetail">Generate working paper</button></div>
+            </div>
+
+            <div class="detail-grid">
+              <article class="panel detail-panel">
+                <div class="panel-heading detail-heading"><div><span class="panel-kicker">TRANSACTION ATTRIBUTES</span><h2>Transaction and timing</h2><p id="selectionBasis">—</p></div><span id="detailRiskBadge" class="risk-badge">—</span></div>
+                <div class="date-timeline" id="dateTimeline"></div>
+                <div class="amount-comparison" id="amountComparison"></div>
+                <div class="difference-evaluation" id="differenceEvaluation"></div>
+                <div class="risk-findings"><div class="subsection-heading"><h3>Exception indicators</h3><button class="info-button" id="riskMethodButton" aria-expanded="false" aria-controls="riskMethod">How scoring works</button></div><div class="risk-method" id="riskMethod" hidden>The score prioritizes follow-up; it is not an audit conclusion. It considers amount differences (with clearly trivial threshold context), cutoff, evidence sufficiency, and receipts over 60 days. All exceptions require auditor evaluation and documented disposition.</div><div id="riskFindings"></div></div>
+                <aside class="manager-review-point" id="managerReviewPoint"></aside>
+              </article>
+
+              <article class="panel evidence-panel">
+                <div class="panel-heading"><div><span class="panel-kicker">PBC EVIDENCE</span><h2>Evidence checklist</h2><p id="evidenceSummary">—</p></div><span class="document-icon"><svg viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6zM14 2v5h5"/></svg></span></div>
+                <div class="evidence-list" id="evidenceList"></div>
+                <div class="evidence-callout" id="evidenceCallout"></div>
+              </article>
+            </div>
+
+            <article class="panel assertion-panel">
+              <div class="panel-heading"><div><span class="panel-kicker">AUDIT PROCEDURES</span><h2>Relevant assertion testing</h2><p>Nature, timing, extent, and results by financial statement assertion.</p></div><span class="reviewer-chip"><span>JL</span> Manager review pending</span></div>
+              <div class="assertion-table" id="assertionMatrix"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="page-section" id="working-paper">
+          <div class="section-heading">
+            <div><p class="eyebrow">Documentation · REV-01</p><h2>Working paper</h2><p>Generate a structured memo from the selected sample and retain preparer judgment.</p></div>
+            <button class="primary-button" id="generatePaperButton">Generate working paper</button>
+          </div>
+
+          <div class="working-paper-placeholder panel" id="workingPaperPlaceholder">
+            <span class="paper-illustration"><svg viewBox="0 0 64 64"><path d="M16 6h25l9 9v43H16z"/><path d="M40 6v11h10M24 27h18M24 35h18M24 43h12"/></svg></span>
+            <div><span class="panel-kicker">DOCUMENTATION READY</span><h3>Generate a sample testing memo</h3><p>The working paper will incorporate transaction details, evidence status, assertion results, exceptions, and a risk-responsive conclusion.</p></div>
+            <button class="secondary-button" id="generatePlaceholderButton">Generate for selected sample</button>
+          </div>
+
+          <article class="working-paper" id="workingPaperOutput" hidden>
+            <header class="wp-header">
+              <div><span class="overline">NORTHSTAR TECHNOLOGIES, INC. · NST-2025-AUD</span><h2>Revenue Test of Details</h2><p>Year ended December 31, 2025</p></div>
+              <dl><div><dt>WP reference</dt><dd>REV-01</dd></div><div><dt>Prepared by</dt><dd>AM</dd></div><div><dt>Prepared date</dt><dd id="preparedDate"></dd></div></dl>
+            </header>
+            <div class="wp-sample-banner"><span>Sample selected</span><strong id="wpSampleId"></strong><span id="wpCustomer"></span><span id="wpRisk"></span></div>
+            <div class="wp-sections" id="wpSections"></div>
+            <div class="signoff-grid"><div><span class="avatar">AM</span><p><small>Prepared by</small><strong>Alex Morgan</strong><em id="preparerSignoff">Draft generated</em></p></div><div class="pending-signoff"><span class="avatar">JL</span><p><small>Reviewed by</small><strong>Jordan Lee</strong><em>Pending manager review</em></p></div></div>
+            <footer class="wp-footer"><span>Generated from fictional data · Professional judgment required</span><div><button class="secondary-button" id="backToSampleButton">Back to sample</button><button class="secondary-button" id="printButton"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4V9h16v9h-2M7 14h10v7H7z"/></svg> Print / Save PDF</button></div></footer>
+          </article>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div class="sidebar-scrim" id="sidebarScrim"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg><span></span></div>
+
+  <script src="data.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
