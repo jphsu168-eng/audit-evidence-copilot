@@ -27,17 +27,19 @@ Audit Evidence Copilot demonstrates a more traceable workflow:
 
 - Ten realistic fictional revenue samples with invoice, GL, recognition, shipment, and subsequent-receipt attributes.
 - Default selection of `REV-001`, with keyboard-accessible table rows and a clear selected state.
-- Review statuses: Not Started, In Progress, Waiting for Client, Exception Noted, Ready for Review, and Reviewed.
+- Review statuses: Not Started, In Progress, Waiting for Client, Exception Noted, Ready for Manager Review, and Reviewed.
 - Action buttons that update both the sample row and engagement dashboard.
-- Search plus operational filters for High Risk, Missing Evidence, Waiting for Client, Ready for Review, and Reviewed.
+- Search plus task filters for every workflow status, Missing Evidence, and High Risk.
+- Dynamic workflow progress from sample selection through manager review.
 - A consistent empty state that cannot conflict with the result count.
 
 ### Evidence, risk, and follow-up
 
 - Toggleable checklist for invoice, sales contract, shipping document, cash receipt, and GL detail.
 - Immediate recalculation of missing-evidence totals, risk score, risk level, assertion impact, and audit conclusion.
-- Transparent exception rules for invoice-to-GL differences, premature recognition, missing evidence, and delayed cash receipt.
-- Sample-specific PBC draft with copy, sent, and received workflow states.
+- Transparent exception rules for invoice-to-GL differences, premature recognition, missing evidence, delayed cash receipt, and round-dollar transactions.
+- Explicit auditor disposition for No Exception, Exception Noted, or Follow-up Required.
+- Editable sample-specific PBC request with Drafted, Sent, Received, and Not Required states.
 - Readiness guardrails that prevent routing a sample while evidence remains outstanding.
 
 ### Documentation and review
@@ -45,7 +47,8 @@ Audit Evidence Copilot demonstrates a more traceable workflow:
 - Persistent associate notes with save and clear actions.
 - Editable working-paper draft containing objective, procedure performed, evidence reviewed, exceptions, assertion impact, conclusion, preparer, reviewer, and review status.
 - Generated drafts refresh with source changes. Manually edited drafts are preserved and flagged when their source data changes.
-- Manager comments can be added, saved, and resolved, with open/resolved counts and a manager conclusion.
+- Manager comments include a persisted associate response and cannot be resolved without documented follow-up.
+- Timestamped per-sample activity history records testing, documentation, PBC, submission, and review actions.
 - All sample work survives refresh through a versioned `localStorage` model.
 - Responsive desktop and mobile layouts, visible success messages, and accessible control labels.
 
@@ -59,6 +62,7 @@ The rules-based score prioritizes audit attention; it does not replace professio
 | Revenue recognized before shipment | +35 |
 | Each missing evidence item | +15, capped at +45 |
 | Cash receipt more than 45 days after recognition | +20 |
+| Round-dollar transaction of at least $100,000 | +10 |
 
 Scores are capped at 100 and classified as Low (0–24), Medium (25–64), or High (65–100). Rules and thresholds are configured in `data.js`; the documented calculation is implemented in `script.js`.
 
@@ -92,7 +96,7 @@ audit-evidence-copilot/
 ## Architecture Notes
 
 - `data.js` is the immutable source for engagement context, risk configuration, and mock transactions.
-- A normalized per-sample model owns evidence, risk, status, notes, PBC state, workpaper state, and review comments.
+- A normalized per-sample model owns evidence, risk, exception disposition, task status, notes, PBC state, workpaper state, review comments, responses, and activity history.
 - One filtered-results array controls rows, selection reconciliation, empty-state visibility, and the authoritative result count.
 - Derived selectors calculate assertions, follow-up, audit conclusion, and manager-review status from the active sample.
 - Event delegation keeps table, evidence, and comment interactions reliable after rerendering.
@@ -105,7 +109,7 @@ audit-evidence-copilot/
 2. Open `REV-004`, inspect its missing support, toggle an evidence item, and watch risk and dashboard metrics update.
 3. Generate and copy the PBC request, then mark it Sent and Received.
 4. Save an associate note and generate the working paper to demonstrate traceability.
-5. Edit and save the draft, add a manager review comment, and resolve the review point.
+5. Edit and save the draft, submit it for manager review, add a review comment, document the associate response, and resolve the review point.
 6. Refresh the page and reopen the sample to demonstrate persistence.
 7. Open `REV-007` to discuss its $5,000 difference, cutoff exception, affected assertions, and 100/100 risk score.
 
@@ -116,7 +120,7 @@ audit-evidence-copilot/
 - Sampling calculator with population stratification and error projection.
 - Proposed-adjustment and passed-adjustment tracking.
 - Cross-sample analytics for customer concentration and cutoff trends.
-- Immutable activity history with preparer/reviewer timestamps.
+- Optional export of the local activity trail for audit-file archiving.
 - Automated accessibility and browser regression coverage.
 - Optional secure backend for controlled multi-user collaboration.
 

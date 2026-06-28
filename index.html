@@ -6,7 +6,7 @@
   <meta name="description" content="Audit Evidence Copilot — an enterprise-style revenue audit workflow portfolio project.">
   <meta name="theme-color" content="#0c2340">
   <title>Revenue Testing | Audit Evidence Copilot</title>
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
   <a class="skip-link" href="#mainContent">Skip to main content</a>
@@ -82,12 +82,12 @@
           </div>
 
           <ol class="workflow-guide" aria-label="Sample testing workflow">
-            <li><span>1</span><strong>Select sample</strong></li>
-            <li><span>2</span><strong>Review evidence</strong></li>
-            <li><span>3</span><strong>Add notes</strong></li>
-            <li><span>4</span><strong>Generate PBC</strong></li>
-            <li><span>5</span><strong>Draft workpaper</strong></li>
-            <li><span>6</span><strong>Manager review</strong></li>
+            <li data-workflow-step="select"><span>1</span><strong>Select sample</strong></li>
+            <li data-workflow-step="evidence"><span>2</span><strong>Evidence review</strong></li>
+            <li data-workflow-step="exception"><span>3</span><strong>Exception decision</strong></li>
+            <li data-workflow-step="pbc"><span>4</span><strong>PBC request</strong></li>
+            <li data-workflow-step="workpaper"><span>5</span><strong>Working paper</strong></li>
+            <li data-workflow-step="manager"><span>6</span><strong>Manager review</strong></li>
           </ol>
 
           <div class="engagement-card" id="engagement-details">
@@ -160,11 +160,14 @@
             <div class="filter-controls">
               <div class="filter-group workbench-filters" aria-label="Filter revenue samples">
                 <button class="filter-button active" data-filter="All">All <span id="allCount">10</span></button>
-                <button class="filter-button" data-filter="High Risk">High risk <span id="highFilterCount">0</span></button>
-                <button class="filter-button" data-filter="Missing Evidence">Missing evidence <span id="missingFilterCount">0</span></button>
+                <button class="filter-button" data-filter="Not Started">Not started <span id="notStartedFilterCount">0</span></button>
+                <button class="filter-button" data-filter="In Progress">In progress <span id="inProgressFilterCount">0</span></button>
                 <button class="filter-button" data-filter="Waiting for Client">Waiting for client <span id="waitingFilterCount">0</span></button>
-                <button class="filter-button" data-filter="Ready for Review">Ready for review <span id="readyFilterCount">0</span></button>
+                <button class="filter-button" data-filter="Exception Noted">Exception noted <span id="exceptionFilterCount">0</span></button>
+                <button class="filter-button" data-filter="Ready for Manager Review">Ready for manager <span id="readyFilterCount">0</span></button>
                 <button class="filter-button" data-filter="Reviewed">Reviewed <span id="reviewedFilterCount">0</span></button>
+                <button class="filter-button" data-filter="Missing Evidence">Missing evidence <span id="missingFilterCount">0</span></button>
+                <button class="filter-button" data-filter="High Risk">High risk <span id="highFilterCount">0</span></button>
               </div>
             </div>
           </div>
@@ -183,14 +186,14 @@
           <div class="detail-workspace" id="sampleDetail" hidden>
             <div class="detail-topbar">
               <div><span class="selection-label">Selected sample</span><strong id="detailTitle">—</strong><span id="detailSubtitle">—</span></div>
-              <div class="detail-actions"><span id="currentReviewStatus" class="workflow-badge">Not Started</span><button class="primary-button" id="generateFromDetail">Generate working paper</button></div>
+              <div class="detail-actions"><span id="currentReviewStatus" class="workflow-badge">Not Started</span><button class="primary-button" id="generateFromDetail">Generate Working Paper Draft</button></div>
             </div>
             <div class="review-action-bar" id="reviewActionBar" aria-label="Sample review actions">
               <span>Update review status</span>
               <button data-status="In Progress">Start Review</button>
               <button data-status="Waiting for Client">Mark Waiting for Client</button>
               <button data-status="Exception Noted">Mark Exception Noted</button>
-              <button data-status="Ready for Review">Mark Ready for Review</button>
+              <button data-status="Ready for Manager Review">Mark Ready for Manager Review</button>
               <button data-status="Reviewed">Mark Reviewed</button>
             </div>
 
@@ -200,7 +203,7 @@
                 <div class="date-timeline" id="dateTimeline"></div>
                 <div class="amount-comparison" id="amountComparison"></div>
                 <div class="difference-evaluation" id="differenceEvaluation"></div>
-                <div class="risk-findings"><div class="subsection-heading"><h3>Exception indicators</h3><button class="info-button" id="riskMethodButton" aria-expanded="false" aria-controls="riskMethod">How scoring works</button></div><div class="risk-method" id="riskMethod" hidden>The score prioritizes follow-up; it is not an audit conclusion. It considers amount differences (with clearly trivial threshold context), cutoff, evidence sufficiency, and receipts over 60 days. All exceptions require auditor evaluation and documented disposition.</div><div id="riskFindings"></div></div>
+                <div class="risk-findings"><div class="subsection-heading"><h3>Exception indicators</h3><button class="info-button" id="riskMethodButton" aria-expanded="false" aria-controls="riskMethod">How scoring works</button></div><div class="risk-method" id="riskMethod" hidden>The score prioritizes follow-up; it is not an audit conclusion. It considers amount differences, cutoff, evidence sufficiency, receipts over 45 days, and round-dollar transactions. All indicators require auditor evaluation and a documented disposition.</div><div id="riskFindings"></div></div>
                 <aside class="manager-review-point" id="managerReviewPoint"></aside>
               </article>
 
@@ -217,11 +220,21 @@
               <div class="assertion-table" id="assertionMatrix"></div>
             </article>
 
+            <article class="panel exception-decision-panel">
+              <div class="panel-heading"><div><span class="panel-kicker">AUDITOR JUDGMENT</span><h2>Exception decision</h2><p>Record the associate's disposition after evaluating the risk indicators and evidence obtained.</p></div><span class="workflow-badge" id="exceptionDecisionBadge">Not evaluated</span></div>
+              <div class="decision-options" id="exceptionDecisionActions" aria-label="Exception decision actions">
+                <button type="button" data-exception-decision="No exception noted"><strong>Mark No Exception</strong><span>Risk indicators evaluated and resolved.</span></button>
+                <button type="button" data-exception-decision="Exception noted"><strong>Mark Exception</strong><span>Documented exception affects the sample conclusion.</span></button>
+                <button type="button" data-exception-decision="Follow-up required"><strong>Mark Follow-up Required</strong><span>Additional evidence or procedures remain open.</span></button>
+              </div>
+              <p class="decision-guidance" id="exceptionDecisionGuidance">Select a disposition to complete the exception evaluation.</p>
+            </article>
+
             <article class="panel audit-notes-panel">
               <div class="panel-heading"><div><span class="panel-kicker">PREPARER DOCUMENTATION</span><h2>Audit notes</h2><p>Capture procedures, explanations, and follow-up performed for this sample.</p></div><span class="note-save-state" id="noteSaveState">Not saved</span></div>
               <label class="sr-only" for="auditNotesInput">Audit notes for selected sample</label>
               <textarea id="auditNotesInput" rows="5" placeholder="Document the work performed, client explanations, and your evaluation…"></textarea>
-              <div class="notes-actions"><button class="primary-button" id="saveNoteButton">Save note</button><button class="secondary-button" id="clearNoteButton">Clear note</button></div>
+              <div class="notes-actions"><button class="primary-button" id="saveNoteButton">Save Audit Note</button><button class="secondary-button" id="clearNoteButton">Clear Audit Note</button></div>
             </article>
 
             <article class="panel audit-outcome-panel">
@@ -232,7 +245,8 @@
 
             <article class="panel pbc-request-panel" id="pbcRequestPanel">
               <header class="pbc-header"><div><span class="panel-kicker">CLIENT REQUEST</span><h2 id="pbcRequestId">PBC request</h2><p id="pbcRequestCustomer">Select missing evidence to create a request.</p></div><span class="workflow-badge" id="pbcStatusBadge">Not Required</span></header>
-              <textarea id="pbcRequestText" rows="9" readonly aria-label="Generated PBC request"></textarea>
+              <label class="sr-only" for="pbcRequestText">Editable PBC request</label>
+              <textarea id="pbcRequestText" rows="9" aria-label="Editable PBC request"></textarea>
               <footer class="pbc-footer"><span>This prototype records status locally and does not send client communications.</span><div><button class="secondary-button" id="generatePbcButton">Generate PBC Request</button><button class="secondary-button" id="copyPbcButton">Copy PBC Request</button><button class="secondary-button" id="markPbcSentButton">Mark PBC Sent</button><button class="secondary-button" id="markPbcReceivedButton">Mark PBC Received</button></div></footer>
             </article>
 
@@ -248,20 +262,25 @@
               <button class="secondary-button add-comment-button" id="addManagerCommentButton">Add manager comment</button>
               <div class="manager-conclusion"><small>Manager conclusion</small><p id="managerConclusion">—</p></div>
             </article>
+
+            <article class="panel activity-log-panel">
+              <div class="panel-heading"><div><span class="panel-kicker">AUDIT TRAIL</span><h2>Sample activity</h2><p>Timestamped workflow actions retained locally for the selected sample.</p></div><span class="activity-count" id="activityCount">0 actions</span></div>
+              <div class="activity-log" id="activityLog"></div>
+            </article>
           </div>
         </section>
 
         <section class="page-section" id="working-paper">
           <div class="section-heading">
             <div><p class="eyebrow">Documentation · REV-01</p><h2>Working paper</h2><p>Generate a structured memo from the selected sample and retain preparer judgment.</p></div>
-            <button class="primary-button" id="generatePaperButton">Generate Working Paper</button>
+            <button class="primary-button" id="generatePaperButton">Generate Working Paper Draft</button>
           </div>
 
           <article class="panel workpaper-editor" id="workingPaperEditorPanel">
             <header><div><span class="panel-kicker">REV-01 · EDITABLE DRAFT</span><h3 id="workpaperEditorTitle">No working paper generated</h3><p id="workpaperEditorMeta">Select a sample and generate a working paper to begin.</p></div><span class="workflow-badge" id="workpaperStatusBadge">Not Started</span></header>
             <label class="sr-only" for="workingPaperEditor">Editable working paper draft</label>
             <textarea id="workingPaperEditor" rows="28" placeholder="Generate a working paper for the selected sample…"></textarea>
-            <footer><span id="workpaperSaveState">No saved draft</span><div><button class="secondary-button" id="saveWorkingPaperButton">Save Working Paper</button><button class="primary-button" id="markReadyForManagerButton">Mark Ready for Manager Review</button></div></footer>
+            <footer><span id="workpaperSaveState">No saved draft</span><div><button class="secondary-button" id="saveWorkingPaperButton">Save Working Paper</button><button class="primary-button" id="markReadyForManagerButton">Submit for Manager Review</button></div></footer>
           </article>
         </section>
       </main>
@@ -271,7 +290,7 @@
   <div class="sidebar-scrim" id="sidebarScrim"></div>
   <div class="toast" id="toast" role="status" aria-live="polite"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg><span></span></div>
 
-  <script src="data.js?v=8"></script>
-  <script src="script.js?v=8"></script>
+  <script src="data.js?v=11"></script>
+  <script src="script.js?v=11"></script>
 </body>
 </html>

@@ -33,6 +33,7 @@ const riskRules = Object.freeze({
   prematureRecognition: 35,
   delayedCashReceipt: 20,
   delayedCashDays: 45,
+  roundDollarTransaction: 10,
   maxEvidencePoints: 45,
   evidenceWeights: Object.freeze({
     invoice: 15,
@@ -47,7 +48,7 @@ const riskRules = Object.freeze({
 const revenueSamples = [
   {
     id: "REV-001", customer: "Atlas Cloud Systems", invoice: "INV-250184", invoiceAmount: 184500, glAmount: 184500,
-    recognitionDate: "2025-12-18", shippingDate: "2025-12-17", cashReceiptDate: "2026-01-14", workflowStatus: "Ready for Review",
+    recognitionDate: "2025-12-18", shippingDate: "2025-12-17", cashReceiptDate: "2026-01-14", workflowStatus: "Ready for Manager Review",
     selectionBasis: "Random sample", owner: "AM",
     evidence: { invoice: true, salesContract: true, shippingDocument: true, cashReceipt: true, glDetail: true }
   },
@@ -77,7 +78,7 @@ const revenueSamples = [
   },
   {
     id: "REV-006", customer: "Evergreen Retail Co.", invoice: "INV-250263", invoiceAmount: 73400, glAmount: 73400,
-    recognitionDate: "2025-12-31", shippingDate: "2025-12-30", cashReceiptDate: "2026-04-12", workflowStatus: "In Progress",
+    recognitionDate: "2025-12-31", shippingDate: "2025-12-30", cashReceiptDate: "2026-04-12", workflowStatus: "Not Started",
     selectionBasis: "Cutoff selection", owner: "AM",
     evidence: { invoice: true, salesContract: true, shippingDocument: true, cashReceipt: true, glDetail: true }
   },
@@ -101,7 +102,7 @@ const revenueSamples = [
   },
   {
     id: "REV-010", customer: "Nova Education Network", invoice: "INV-250291", invoiceAmount: 129900, glAmount: 129900,
-    recognitionDate: "2025-12-31", shippingDate: "2025-12-31", cashReceiptDate: "2026-01-28", workflowStatus: "Ready for Review",
+    recognitionDate: "2025-12-31", shippingDate: "2025-12-31", cashReceiptDate: "2026-01-28", workflowStatus: "Ready for Manager Review",
     selectionBasis: "Random sample", owner: "AM",
     evidence: { invoice: true, salesContract: true, shippingDocument: true, cashReceipt: true, glDetail: true }
   }
