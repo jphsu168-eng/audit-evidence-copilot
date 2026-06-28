@@ -39,13 +39,13 @@ Audit Evidence Copilot demonstrates a more traceable workflow:
 - Immediate recalculation of missing-evidence totals, risk score, risk level, assertion impact, and audit conclusion.
 - Transparent exception rules for invoice-to-GL differences, premature recognition, missing evidence, delayed cash receipt, and round-dollar transactions.
 - Explicit auditor disposition for No Exception, Exception Noted, or Follow-up Required.
-- Editable sample-specific PBC request with Drafted, Sent, Received, and Not Required states.
+- Sample-specific PBC request with an explicit edit mode and Drafted, Sent, Received, and Not Required states.
 - Readiness guardrails that prevent routing a sample while evidence remains outstanding.
 
 ### Documentation and review
 
 - Persistent associate notes with save and clear actions.
-- Editable working-paper draft containing objective, procedure performed, evidence reviewed, exceptions, assertion impact, conclusion, preparer, reviewer, and review status.
+- Working-paper draft with explicit edit/save controls containing objective, procedure performed, evidence reviewed, exceptions, assertion impact, conclusion, preparer, reviewer, and review status.
 - Generated drafts refresh with source changes. Manually edited drafts are preserved and flagged when their source data changes.
 - Manager comments include a persisted associate response and cannot be resolved without documented follow-up.
 - Timestamped per-sample activity history records testing, documentation, PBC, submission, and review actions.

@@ -6,7 +6,7 @@
   <meta name="description" content="Audit Evidence Copilot — an enterprise-style revenue audit workflow portfolio project.">
   <meta name="theme-color" content="#0c2340">
   <title>Revenue Testing | Audit Evidence Copilot</title>
-  <link rel="stylesheet" href="style.css?v=11">
+  <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
   <a class="skip-link" href="#mainContent">Skip to main content</a>
@@ -247,7 +247,7 @@
               <header class="pbc-header"><div><span class="panel-kicker">CLIENT REQUEST</span><h2 id="pbcRequestId">PBC request</h2><p id="pbcRequestCustomer">Select missing evidence to create a request.</p></div><span class="workflow-badge" id="pbcStatusBadge">Not Required</span></header>
               <label class="sr-only" for="pbcRequestText">Editable PBC request</label>
               <textarea id="pbcRequestText" rows="9" aria-label="Editable PBC request"></textarea>
-              <footer class="pbc-footer"><span>This prototype records status locally and does not send client communications.</span><div><button class="secondary-button" id="generatePbcButton">Generate PBC Request</button><button class="secondary-button" id="copyPbcButton">Copy PBC Request</button><button class="secondary-button" id="markPbcSentButton">Mark PBC Sent</button><button class="secondary-button" id="markPbcReceivedButton">Mark PBC Received</button></div></footer>
+              <footer class="pbc-footer"><span>This prototype records status locally and does not send client communications.</span><div><button class="secondary-button" id="generatePbcButton">Generate PBC Request</button><button class="secondary-button" id="editPbcButton">Edit PBC Request</button><button class="secondary-button" id="copyPbcButton">Copy PBC Request</button><button class="secondary-button" id="markPbcSentButton">Mark PBC Sent</button><button class="secondary-button" id="markPbcReceivedButton">Mark PBC Received</button></div></footer>
             </article>
 
             <article class="panel manager-review-panel" id="managerReviewPanel">
@@ -280,7 +280,7 @@
             <header><div><span class="panel-kicker">REV-01 · EDITABLE DRAFT</span><h3 id="workpaperEditorTitle">No working paper generated</h3><p id="workpaperEditorMeta">Select a sample and generate a working paper to begin.</p></div><span class="workflow-badge" id="workpaperStatusBadge">Not Started</span></header>
             <label class="sr-only" for="workingPaperEditor">Editable working paper draft</label>
             <textarea id="workingPaperEditor" rows="28" placeholder="Generate a working paper for the selected sample…"></textarea>
-            <footer><span id="workpaperSaveState">No saved draft</span><div><button class="secondary-button" id="saveWorkingPaperButton">Save Working Paper</button><button class="primary-button" id="markReadyForManagerButton">Submit for Manager Review</button></div></footer>
+            <footer><span id="workpaperSaveState">No saved draft</span><div><button class="secondary-button" id="editWorkingPaperButton">Edit Working Paper</button><button class="secondary-button" id="saveWorkingPaperButton">Save Working Paper</button><button class="primary-button" id="markReadyForManagerButton">Submit for Manager Review</button></div></footer>
           </article>
         </section>
       </main>
@@ -290,7 +290,7 @@
   <div class="sidebar-scrim" id="sidebarScrim"></div>
   <div class="toast" id="toast" role="status" aria-live="polite"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg><span></span></div>
 
-  <script src="data.js?v=11"></script>
-  <script src="script.js?v=11"></script>
+  <script src="data.js?v=12"></script>
+  <script src="script.js?v=12"></script>
 </body>
 </html>

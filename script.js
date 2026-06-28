@@ -24,7 +24,9 @@
   const state = {
     selectedId: null,
     activeFilter: "All",
-    searchTerm: ""
+    searchTerm: "",
+    pbcEditing: false,
+    workpaperEditing: false
   };
 
   const byId = (id) => document.getElementById(id);
@@ -408,7 +410,11 @@
       state.selectedId = null;
       return;
     }
-    if (!results.some((sample) => sample.id === state.selectedId)) state.selectedId = results[0].id;
+    if (!results.some((sample) => sample.id === state.selectedId)) {
+      state.selectedId = results[0].id;
+      state.pbcEditing = false;
+      state.workpaperEditing = false;
+    }
   }
 
   function renderSamplesView() {
@@ -561,8 +567,10 @@
     byId("pbcStatusBadge").className = `workflow-badge ${slug(sample.pbcStatus)}`;
     byId("pbcRequestText").value = sample.pbcText;
     byId("pbcRequestText").placeholder = required ? "Generate or edit the client request here." : "No additional client support is required.";
-    byId("pbcRequestText").disabled = !required;
+    byId("pbcRequestText").disabled = !required || !state.pbcEditing;
     byId("generatePbcButton").disabled = !required;
+    byId("editPbcButton").disabled = !required || !sample.pbcText;
+    byId("editPbcButton").textContent = state.pbcEditing ? "Finish Editing" : "Edit PBC Request";
     byId("copyPbcButton").disabled = !sample.pbcText;
     byId("markPbcSentButton").disabled = !sample.pbcText || ["Sent", "Received"].includes(sample.pbcStatus);
     byId("markPbcReceivedButton").disabled = sample.pbcStatus !== "Sent";
@@ -575,8 +583,10 @@
     byId("workpaperStatusBadge").className = `workflow-badge ${slug(sample.workingPaperStatus)}`;
     byId("workingPaperEditor").value = sample.workingPaperDraft;
     byId("workingPaperEditor").placeholder = "Generate a working paper from the active sample, then edit the draft here.";
-    byId("workingPaperEditor").disabled = !sample.workingPaperDraft;
-    byId("saveWorkingPaperButton").disabled = !sample.workingPaperDraft;
+    byId("workingPaperEditor").disabled = !sample.workingPaperDraft || !state.workpaperEditing;
+    byId("editWorkingPaperButton").disabled = !sample.workingPaperDraft;
+    byId("editWorkingPaperButton").textContent = state.workpaperEditing ? "Editing Working Paper" : "Edit Working Paper";
+    byId("saveWorkingPaperButton").disabled = !sample.workingPaperDraft || !state.workpaperEditing;
     byId("markReadyForManagerButton").disabled = !sample.workingPaperDraft;
     byId("workpaperSaveState").textContent = sample.workingPaperStale
       ? "Saved edits preserved · source data changed — regenerate to refresh"
@@ -709,6 +719,7 @@
     }
     sample.pbcText = buildPbcText(sample);
     sample.pbcStatus = "Drafted";
+    state.pbcEditing = true;
     addActivity(sample, "PBC request generated", `${pbcRequirements(sample).length} requested item${pbcRequirements(sample).length === 1 ? "" : "s"}`);
     syncWorkingPaperSource(sample);
     saveState();
@@ -751,6 +762,7 @@
       return;
     }
     sample.pbcStatus = status;
+    state.pbcEditing = false;
     sample.workflowStatus = status === "Sent" ? "Waiting for Client" : "In Progress";
     addActivity(sample, `PBC marked ${status.toLowerCase()}`);
     syncWorkingPaperSource(sample);
@@ -766,6 +778,7 @@
     sample.workingPaperStatus = "Draft";
     sample.workingPaperCustomized = false;
     sample.workingPaperStale = false;
+    state.workpaperEditing = true;
     addActivity(sample, "Working paper draft generated");
     saveState();
     renderWorkingPaperEditor(sample);
@@ -781,6 +794,7 @@
     sample.workingPaperStatus = sample.workingPaperDraft ? "Draft" : "Not Started";
     sample.workingPaperCustomized = Boolean(sample.workingPaperDraft);
     sample.workingPaperStale = false;
+    state.workpaperEditing = false;
     addActivity(sample, "Working paper saved");
     saveState();
     renderWorkingPaperEditor(sample);
@@ -808,6 +822,7 @@
     sample.workingPaperStatus = "Ready for Manager Review";
     sample.workingPaperCustomized = true;
     sample.workingPaperStale = false;
+    state.workpaperEditing = false;
     sample.workflowStatus = "Ready for Manager Review";
     addActivity(sample, "Working paper submitted", "Ready for manager review");
     saveState();
@@ -915,18 +930,35 @@
     renderWorkingPaperEditor(sample);
   }
 
-  function logPbcEdit() {
+  function togglePbcEditing() {
     const sample = getSelectedSample();
-    if (!sample || !sample.pbcText.trim()) return;
-    addActivity(sample, "PBC request edited");
-    saveState();
-    renderActivityLog(sample);
+    if (!sample || !sample.pbcText) return;
+    state.pbcEditing = !state.pbcEditing;
+    if (!state.pbcEditing) {
+      addActivity(sample, "PBC request edited");
+      saveState();
+      renderActivityLog(sample);
+    }
+    renderPbc(sample);
+    if (state.pbcEditing) byId("pbcRequestText").focus();
+    showToast(state.pbcEditing ? "PBC request unlocked for editing." : "PBC request edits saved.");
+  }
+
+  function enableWorkingPaperEditing() {
+    const sample = getSelectedSample();
+    if (!sample?.workingPaperDraft) return;
+    state.workpaperEditing = true;
+    renderWorkingPaperEditor(sample);
+    byId("workingPaperEditor").focus();
+    showToast("Working paper unlocked for editing.");
   }
 
   function openSample(sampleId) {
     const sample = samples.find((item) => item.id === sampleId);
     if (!sample) return;
     state.selectedId = sampleId;
+    state.pbcEditing = false;
+    state.workpaperEditing = false;
     renderSamplesView();
     byId("sampleDetail").scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -992,14 +1024,15 @@
     byId("saveNoteButton").addEventListener("click", saveAuditNote);
     byId("clearNoteButton").addEventListener("click", clearAuditNote);
     byId("generatePbcButton").addEventListener("click", generatePbcRequest);
+    byId("editPbcButton").addEventListener("click", togglePbcEditing);
     byId("jumpToPbcButton").addEventListener("click", () => byId("pbcRequestPanel").scrollIntoView({ behavior: "smooth", block: "center" }));
     byId("copyPbcButton").addEventListener("click", copyPbcRequest);
     byId("markPbcSentButton").addEventListener("click", () => updatePbcStatus("Sent"));
     byId("markPbcReceivedButton").addEventListener("click", () => updatePbcStatus("Received"));
     byId("pbcRequestText").addEventListener("input", updatePbcDraft);
-    byId("pbcRequestText").addEventListener("change", logPbcEdit);
     ["generatePaperButton", "generateFromDetail"].forEach((id) => byId(id).addEventListener("click", generateWorkingPaper));
     byId("workingPaperEditor").addEventListener("input", () => { byId("workpaperSaveState").textContent = "Unsaved changes"; });
+    byId("editWorkingPaperButton").addEventListener("click", enableWorkingPaperEditing);
     byId("saveWorkingPaperButton").addEventListener("click", saveWorkingPaper);
     byId("markReadyForManagerButton").addEventListener("click", markReadyForManager);
     byId("addManagerCommentButton").addEventListener("click", addManagerComment);
