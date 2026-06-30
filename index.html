@@ -6,7 +6,7 @@
   <meta name="description" content="Audit Evidence Copilot — an enterprise-style revenue audit workflow portfolio project.">
   <meta name="theme-color" content="#0c2340">
   <title>Revenue Testing | Audit Evidence Copilot</title>
-  <link rel="stylesheet" href="style.css?v=16">
+  <link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
   <a class="skip-link" href="#mainContent">Skip to main content</a>
@@ -113,7 +113,7 @@
             <i></i>
             <div class="workflow-step complete"><span>2</span><div><small>Sample selection</small><strong>10 selected</strong></div></div>
             <i></i>
-            <div class="workflow-step active"><span>3</span><div><small>Evidence & testing</small><strong id="workflowProgress">In progress</strong></div></div>
+            <div class="workflow-step active"><span>3</span><div><small>Evidence &amp; testing</small><strong id="workflowProgress">In progress</strong></div></div>
             <i></i>
             <div class="workflow-step"><span>4</span><div><small>Manager review</small><strong>Not started</strong></div></div>
           </div>
@@ -129,6 +129,8 @@
           </article>
 
           <div class="metric-grid" id="metricGrid" aria-label="Engagement summary metrics"></div>
+          <div class="operations-metric-grid" id="operationsMetricGrid" aria-label="Audit operations metrics"></div>
+          <article class="panel platform-alert-panel"><div class="panel-heading"><div><span class="panel-kicker">OPERATIONS ALERTS</span><h2>Engagement alerts</h2><p>Live conditions requiring associate or manager attention.</p></div></div><div class="platform-alerts" id="platformAlerts"></div></article>
 
           <div class="overview-grid">
             <article class="panel progress-panel">
@@ -150,12 +152,14 @@
         <section class="page-section" id="samples">
           <div class="section-heading">
             <div><p class="eyebrow">REV-01 · Test of details</p><h2>Revenue sample testing</h2><p>Evaluate occurrence, accuracy, cutoff, collectibility, and evidence sufficiency.</p></div>
-            <div class="section-meta"><span><small>Selection method</small><strong>Nonstatistical random + targeted</strong></span><span><small>Sample coverage</small><strong id="sampleCoverage">—</strong></span></div>
+            <div class="sample-management-actions"><span class="coverage-chip">Coverage <strong id="sampleCoverage">—</strong></span><button class="primary-button" id="addSampleButton">Add New Sample</button><button class="secondary-button" id="editSampleButton">Edit Selected Sample</button><button class="secondary-button danger-button" id="deleteSampleButton">Delete Selected</button><button class="secondary-button" id="resetSampleButton">Reset Review</button></div>
           </div>
+
+          <div class="bulk-action-bar panel" id="bulkActionBar"><strong id="bulkSelectionCount">0 selected</strong><button id="bulkMarkInProgressButton">Mark Selected In Progress</button><button id="bulkGeneratePbcButton">Generate PBC for Selected</button><button id="bulkExportJsonButton">Export Selected Sample JSON</button><button id="bulkClearButton">Clear Selection</button></div>
 
           <div class="testing-context-bar">
             <span><small>Population source</small><strong>REV_POP_2025_v3</strong></span>
-            <span><small>Completeness & accuracy</small><strong><i class="inline-check">✓</i> Agreed to trial balance</strong></span>
+            <span><small>Completeness &amp; accuracy</small><strong><i class="inline-check">✓</i> Agreed to trial balance</strong></span>
             <span><small>Nature / timing / extent</small><strong>Inspection · recalculation · year-end cutoff</strong></span>
             <span><small>Sampling approach</small><strong>Nonstatistical · random + targeted</strong></span>
           </div>
@@ -181,7 +185,7 @@
           <div class="table-card panel">
             <div class="table-wrap">
               <table>
-                <thead><tr><th scope="col">Sample ID</th><th scope="col">Customer</th><th scope="col">Invoice number</th><th scope="col" class="numeric">Invoice amount</th><th scope="col" class="numeric">GL amount</th><th scope="col">Revenue date</th><th scope="col">Shipping date</th><th scope="col">Risk score</th><th scope="col">Risk level</th><th scope="col">Task status</th><th scope="col">PBC status</th></tr></thead>
+                <thead><tr><th scope="col" class="bulk-cell"><input type="checkbox" id="selectAllSamples" aria-label="Select all visible samples"></th><th scope="col">Sample ID</th><th scope="col">Customer</th><th scope="col">Invoice number</th><th scope="col" class="numeric">Invoice amount</th><th scope="col" class="numeric">GL amount</th><th scope="col">Revenue date</th><th scope="col">Shipping date</th><th scope="col">Risk score</th><th scope="col">Risk level</th><th scope="col">Task status</th><th scope="col">PBC status</th></tr></thead>
                 <tbody id="sampleTableBody"></tbody>
               </table>
               <div class="empty-state" id="emptyState" hidden><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><strong>No samples found</strong><span>Adjust your search or filters and try again.</span><button class="text-button" id="clearFilters">Clear filters</button></div>
@@ -253,8 +257,16 @@
               <div class="outcome-conclusion" id="impactConclusion"></div>
             </article>
 
+            <article class="panel exception-tracker-panel" id="exceptionTrackerPanel">
+              <div class="panel-heading"><div><span class="panel-kicker">EXCEPTION MANAGEMENT</span><h2>Exception tracker</h2><p>Create, document, resolve, and reopen sample exceptions.</p></div><span class="workflow-badge" id="exceptionTrackerBadge">0 Open</span></div>
+              <div class="exception-form-grid"><label>Exception type<select id="trackerExceptionType"><option>Amount Mismatch</option><option>Cutoff Issue</option><option>Missing Evidence</option><option>Delayed Receipt</option><option>Other</option></select></label><label>Assertion affected<select id="trackerAssertion"><option>Occurrence</option><option>Accuracy</option><option>Cutoff</option><option>Collectibility</option><option>Valuation</option></select></label><label>Dollar impact<input type="number" min="0" step="0.01" id="trackerDollarImpact" value="0"></label><label>Root cause<input type="text" id="trackerRootCause" placeholder="Describe the underlying cause"></label><label>Management explanation<textarea id="trackerManagementExplanation" rows="3"></textarea></label><label>Proposed resolution<textarea id="trackerProposedResolution" rows="3"></textarea></label></div>
+              <div class="assessment-actions"><button class="secondary-button" id="cancelTrackedExceptionButton">Clear Form</button><button class="primary-button" id="saveTrackedExceptionButton">Create Exception</button></div>
+              <div class="exception-tracker-list" id="exceptionTrackerList"></div>
+            </article>
+
             <article class="panel audit-notes-panel">
               <div class="panel-heading"><div><span class="panel-kicker">PREPARER DOCUMENTATION</span><h2>Audit notes</h2><p>Capture procedures, explanations, and follow-up performed for this sample.</p></div><span class="note-save-state" id="noteSaveState">Not saved</span></div>
+              <label class="note-type-control">Note type<select id="auditNoteType"><option>Testing Note</option><option>Client Explanation</option><option>Reviewer Note</option><option>Follow-up Note</option><option>Conclusion Note</option></select></label>
               <label class="sr-only" for="auditNotesInput">Audit notes for selected sample</label>
               <textarea id="auditNotesInput" rows="5" placeholder="Document the work performed, client explanations, and your evaluation…"></textarea>
               <div class="notes-actions"><button class="primary-button" id="saveNoteButton">Save Audit Note</button><button class="secondary-button" id="clearNoteButton">Clear Draft Note</button></div>
@@ -269,9 +281,10 @@
 
             <article class="panel pbc-request-panel" id="pbcRequestPanel">
               <header class="pbc-header"><div><span class="panel-kicker">CLIENT REQUEST</span><h2 id="pbcRequestId">PBC request</h2><p id="pbcRequestCustomer">Select missing evidence to create a request.</p></div><span class="workflow-badge" id="pbcStatusBadge">Not Required</span></header>
+              <div class="pbc-admin-row"><label>Due date<input type="date" id="pbcDueDate"></label><p id="pbcMeta">No request created</p></div>
               <label class="sr-only" for="pbcRequestText">Editable PBC request</label>
               <textarea id="pbcRequestText" rows="9" aria-label="Editable PBC request"></textarea>
-              <footer class="pbc-footer"><span>This prototype records status locally and does not send client communications.</span><div><button class="secondary-button" id="generatePbcButton">Generate PBC Request</button><button class="secondary-button" id="editPbcButton">Edit PBC Request</button><button class="secondary-button" id="copyPbcButton">Copy PBC Request</button><button class="secondary-button" id="markPbcSentButton">Mark PBC Sent</button><button class="secondary-button" id="markPbcReceivedButton">Mark PBC Received</button><button class="secondary-button" id="markPbcNotRequiredButton">Mark PBC Not Required</button></div></footer>
+              <footer class="pbc-footer"><span>This prototype records status locally and does not send client communications.</span><div><button class="secondary-button" id="createPbcButton">Create PBC Request</button><button class="secondary-button" id="generatePbcButton">Generate from Exceptions</button><button class="secondary-button" id="editPbcButton">Edit PBC Request</button><button class="secondary-button" id="copyPbcButton">Copy</button><button class="secondary-button" id="markPbcSentButton">Mark Sent</button><button class="secondary-button" id="markPbcReceivedButton">Mark Received</button><button class="secondary-button" id="markPbcOverdueButton">Mark Overdue</button><button class="secondary-button" id="closePbcButton">Close Request</button></div></footer>
             </article>
 
             <article class="panel manager-review-panel" id="managerReviewPanel">
@@ -284,6 +297,7 @@
               <div class="review-comments" id="managerReviewComments"></div>
               <div class="manager-comment-composer" id="managerCommentComposer" hidden><label for="managerCommentInput">New manager comment</label><textarea id="managerCommentInput" rows="3" placeholder="Enter a review comment…"></textarea><div><button class="primary-button" id="saveManagerCommentButton">Save comment</button><button class="secondary-button" id="cancelManagerCommentButton">Cancel</button></div></div>
               <button class="secondary-button add-comment-button" id="addManagerCommentButton">Add manager comment</button>
+              <div class="manager-workflow-actions"><button class="secondary-button" id="returnForRevisionButton">Return for Revision</button><button class="primary-button" id="approveReviewButton">Approve Review</button></div>
               <div class="manager-conclusion"><small>Manager conclusion</small><p id="managerConclusion">—</p></div>
             </article>
 
@@ -306,11 +320,15 @@
             <div class="readiness-footer"><p id="readinessMessage">Select a sample to evaluate readiness.</p><button class="primary-button" id="readinessSubmitButton">Submit for Manager Review</button></div>
           </article>
 
+          <article class="panel export-center-panel"><div class="panel-heading"><div><span class="panel-kicker">EXPORT CENTER</span><h2>Audit documentation exports</h2><p>Create local portfolio artifacts using browser-side Blob downloads.</p></div></div><div class="export-center-actions"><button class="secondary-button" data-export-center="workpaper">Selected Workpaper .txt</button><button class="secondary-button" data-export-center="activity">Selected Activity Log .txt</button><button class="secondary-button" data-export-center="sample">Selected Sample .json</button><button class="primary-button" id="exportEngagementButton">Full Engagement Summary .json</button></div></article>
+
           <article class="panel workpaper-editor" id="workingPaperEditorPanel">
             <header><div><span class="panel-kicker">REV-01 · EDITABLE DRAFT</span><h3 id="workpaperEditorTitle">No working paper generated</h3><p id="workpaperEditorMeta">Select a sample and generate a working paper to begin.</p></div><span class="workflow-badge" id="workpaperStatusBadge">Not Started</span></header>
             <label class="sr-only" for="workingPaperEditor">Editable working paper draft</label>
             <textarea id="workingPaperEditor" rows="28" placeholder="Generate a working paper for the selected sample…"></textarea>
-            <footer><span id="workpaperSaveState">No saved draft</span><div><button class="secondary-button" id="editWorkingPaperButton">Edit Working Paper</button><button class="secondary-button" id="saveWorkingPaperButton">Save Working Paper</button><button class="primary-button" id="markReadyForManagerButton">Submit for Manager Review</button></div></footer>
+            <div class="version-save-row"><label>Version note<input type="text" id="workpaperVersionNote" placeholder="Describe changes in this version"></label><span id="workpaperVersionCount">0 versions</span></div>
+            <footer><span id="workpaperSaveState">No saved draft</span><div><button class="secondary-button" id="editWorkingPaperButton">Edit Working Paper</button><button class="secondary-button" id="saveWorkingPaperButton">Save Working Paper Version</button><button class="primary-button" id="markReadyForManagerButton">Submit for Manager Review</button></div></footer>
+            <details class="version-history"><summary>View Version History</summary><div id="workpaperVersionHistory"></div></details>
           </article>
         </section>
       </main>
@@ -318,9 +336,10 @@
   </div>
 
   <div class="sidebar-scrim" id="sidebarScrim"></div>
+  <div class="modal-backdrop" id="sampleFormModal" hidden><section class="sample-form-modal" role="dialog" aria-modal="true" aria-labelledby="sampleFormTitle"><header><div><span class="panel-kicker">SAMPLE MANAGEMENT</span><h2 id="sampleFormTitle">Add New Revenue Sample</h2></div><button class="quiet-icon" id="closeSampleFormButton" aria-label="Close sample form">×</button></header><div class="sample-form-grid"><label>Customer<input id="sampleCustomer" type="text"></label><label>Invoice Number<input id="sampleInvoiceNumber" type="text"></label><label>Invoice Amount<input id="sampleInvoiceAmount" type="number" min="0" step="0.01"></label><label>GL Amount<input id="sampleGlAmount" type="number" min="0" step="0.01"></label><label>Invoice Date<input id="sampleInvoiceDate" type="date"></label><label>Revenue Recognition Date<input id="sampleRevenueDate" type="date"></label><label>Shipping Date<input id="sampleShippingDate" type="date"></label><label>Cash Receipt Date<input id="sampleCashReceiptDate" type="date"></label></div><footer><button class="secondary-button" id="cancelSampleFormButton">Cancel Edit</button><button class="primary-button" id="saveSampleFormButton">Save Sample Changes</button></footer></section></div>
   <div class="toast" id="toast" role="status" aria-live="polite"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg><span></span></div>
 
-  <script src="data.js?v=16"></script>
-  <script src="script.js?v=16"></script>
+  <script src="data.js?v=20"></script>
+  <script src="script.js?v=20"></script>
 </body>
 </html>

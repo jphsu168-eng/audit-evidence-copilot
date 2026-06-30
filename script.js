@@ -13,7 +13,7 @@
     glDetail: { label: "GL Detail", prefix: "GL" }
   };
   const evidenceLabels = Object.fromEntries(Object.entries(evidenceDefinitions).map(([key, value]) => [key, value.label]));
-  const evidenceStatuses = ["Not Received", "Received", "Reviewed", "Exception"];
+  const evidenceStatuses = ["Not Received", "Received", "Reviewed", "Exception", "Removed"];
   const tickmarkOptions = ["✓ Agreed", "M Missing", "E Exception", "F Follow-up", "N/A Not applicable"];
 
   function defaultTickmark(status) {
@@ -21,7 +21,8 @@
       Reviewed: "✓ Agreed",
       "Not Received": "M Missing",
       Received: "F Follow-up",
-      Exception: "E Exception"
+      Exception: "E Exception",
+      Removed: "M Missing"
     }[status] || "F Follow-up";
   }
 
@@ -60,14 +61,14 @@
       Exception: "Exception Noted"
     };
     const normalized = aliases[status] || status;
-    return ["Not Started", "In Progress", "Waiting for Client", "Exception Noted", "Ready for Manager Review", "Reviewed"].includes(normalized)
+    return ["Not Started", "In Progress", "Waiting for Client", "Exception Noted", "Ready for Manager Review", "Returned for Revision", "Reviewed"].includes(normalized)
       ? normalized
       : "Not Started";
   }
 
   function normalizePbcStatus(status) {
-    if (status === "Draft") return "Drafted";
-    return ["Not Required", "Drafted", "Sent", "Received"].includes(status) ? status : "Not Required";
+    if (status === "Drafted") return "Draft";
+    return ["Draft", "Sent", "Received", "Overdue", "Closed"].includes(status) ? status : "Draft";
   }
 
   function normalizeExceptionDecision(value) {
@@ -108,7 +109,9 @@
         : saved === true || (saved === undefined && base === true) ? "Reviewed" : "Not Received";
       const tickmark = typeof saved === "object" && tickmarkOptions.includes(saved.tickmark) ? saved.tickmark : defaultTickmark(status);
       const note = typeof saved === "object" && typeof saved.note === "string" ? saved.note : "";
-      return [key, { label: definition.label, status, ref: typeof saved === "object" && saved.ref ? saved.ref : `${definition.prefix}-${suffix}`, tickmark, note }];
+      const fileName = typeof saved === "object" && typeof saved.fileName === "string" ? saved.fileName : "";
+      const receivedDate = typeof saved === "object" && typeof saved.receivedDate === "string" ? saved.receivedDate : "";
+      return [key, { label: definition.label, status, ref: typeof saved === "object" && saved.ref ? saved.ref : `${definition.prefix}-${suffix}`, fileName, receivedDate, tickmark, note }];
     }));
   }
 
@@ -120,7 +123,7 @@
 
   function notReceivedEvidence(sample) {
     return Object.entries(sample.evidence)
-      .filter(([, item]) => item.status === "Not Received")
+      .filter(([, item]) => ["Not Received", "Removed"].includes(item.status))
       .map(([key]) => evidenceLabels[key]);
   }
 
@@ -164,10 +167,37 @@
   const defaultSamples = revenueSamples.map((baseSample) => {
     const saved = persistedById[baseSample.id] || {};
     const migratedNotes = Array.isArray(saved.auditNotes)
-      ? saved.auditNotes
+      ? saved.auditNotes.map((note) => ({ type: "Testing Note", pinned: false, ...note }))
       : typeof saved.auditNotes === "string" && saved.auditNotes.trim()
-        ? [{ id: `NOTE-${baseSample.id}-MIGRATED`, text: saved.auditNotes, timestamp: "Previously saved" }]
+        ? [{ id: `NOTE-${baseSample.id}-MIGRATED`, type: "Testing Note", text: saved.auditNotes, timestamp: "Previously saved", pinned: false }]
         : [];
+    const migratedPbcRequests = Array.isArray(saved.pbcRequests)
+      ? saved.pbcRequests.map((request, index) => ({
+        id: request.id || `PBC-${baseSample.id}-${String(index + 1).padStart(2, "0")}`,
+        text: request.text || "",
+        sampleId: baseSample.id,
+        evidenceRefs: Array.isArray(request.evidenceRefs) ? request.evidenceRefs : [],
+        dueDate: request.dueDate || "",
+        status: normalizePbcStatus(request.status),
+        createdAt: request.createdAt || "Previously saved",
+        updatedAt: request.updatedAt || request.createdAt || "Previously saved"
+      }))
+      : saved.pbcRequest || saved.pbcText
+        ? [{ id: `PBC-${baseSample.id}-01`, text: saved.pbcRequest || saved.pbcText, sampleId: baseSample.id, evidenceRefs: [], dueDate: "", status: normalizePbcStatus(saved.pbcStatus), createdAt: "Previously saved", updatedAt: "Previously saved" }]
+        : [];
+    const migratedExceptions = Array.isArray(saved.exceptions) ? saved.exceptions.map((exception, index) => ({
+      id: exception.id || `EXC-${baseSample.id}-${String(index + 1).padStart(2, "0")}`,
+      type: exception.type || "Other",
+      assertion: exception.assertion || "Occurrence",
+      dollarImpact: Number(exception.dollarImpact) || 0,
+      rootCause: exception.rootCause || "",
+      managementExplanation: exception.managementExplanation || "",
+      proposedResolution: exception.proposedResolution || "",
+      status: ["Open", "Pending Client", "Resolved", "Reopened"].includes(exception.status) ? exception.status : "Open",
+      createdAt: exception.createdAt || "Previously saved",
+      updatedAt: exception.updatedAt || exception.createdAt || "Previously saved"
+    })) : [];
+    const migratedVersions = Array.isArray(saved.workingPaperVersions) ? saved.workingPaperVersions : [];
     const sample = {
       ...baseSample,
       invoiceNumber: baseSample.invoice,
@@ -179,15 +209,16 @@
       draftAuditNote: typeof saved.draftAuditNote === "string" ? saved.draftAuditNote : "",
       managementExplanation: typeof saved.managementExplanation === "string" ? saved.managementExplanation : "",
       proposedResolution: typeof saved.proposedResolution === "string" ? saved.proposedResolution : "",
-      pbcStatus: normalizePbcStatus(saved.pbcStatus),
-      pbcRequest: typeof saved.pbcRequest === "string" ? saved.pbcRequest : typeof saved["pbcText"] === "string" ? saved["pbcText"] : "",
-      pbcAddressed: Boolean(saved.pbcAddressed || saved.pbcStatus === "Received"),
+      pbcRequests: migratedPbcRequests,
       workingPaperDraft: typeof saved.workingPaperDraft === "string" ? saved.workingPaperDraft : "",
       workingPaperStatus: saved.workingPaperStatus || "Not Started",
       workingPaperSaved: typeof saved.workingPaperSaved === "boolean" ? saved.workingPaperSaved : Boolean(saved.workingPaperDraft && saved.workingPaperCustomized),
+      workingPaperVersions: migratedVersions,
       workingPaperCustomized: Boolean(saved.workingPaperCustomized),
       workingPaperStale: Boolean(saved.workingPaperStale),
-      managerComments: Array.isArray(saved.managerComments) ? saved.managerComments.map((comment) => ({ response: "", responseAt: "", ...comment })) : [],
+      managerComments: Array.isArray(saved.managerComments) ? saved.managerComments.map((comment) => ({ response: "", responseAt: "", status: comment.status || (comment.resolved ? "Resolved" : "Open"), ...comment })) : [],
+      reviewStatus: saved.reviewStatus || (saved.taskStatus === "Reviewed" ? "Reviewed" : saved.taskStatus === "Ready for Manager Review" ? "Submitted" : "Not Submitted"),
+      exceptions: migratedExceptions,
       exceptionDecision: normalizeExceptionDecision(saved.exceptionDecision),
       activityLog: Array.isArray(saved.activityLog) ? saved.activityLog : []
     };
@@ -202,14 +233,6 @@
       else if (["Ready for Manager Review", "Reviewed"].includes(sample.taskStatus)) sample.exceptionDecision = sample.risk.findings.length ? "Exception Noted" : "No Exception Noted";
       else sample.exceptionDecision = "Not Assessed";
     }
-    if (!pbcRequirements(sample).length) {
-      if (!sample.pbcRequest || !["Sent", "Received"].includes(sample.pbcStatus)) {
-        sample.pbcStatus = "Not Required";
-        sample.pbcRequest = "";
-      }
-    } else if (!sample.pbcRequest) {
-      sample.pbcStatus = "Not Required";
-    }
     return sample;
   });
 
@@ -220,10 +243,14 @@
   }
 
   const appState = {
-    version: 5,
+    version: 6,
     selectedSampleId: samplesFromStateSelection(),
     activeFilter: "All",
     searchTerm: "",
+    selectedBulkSampleIds: Array.isArray(persistedState.selectedBulkSampleIds) ? persistedState.selectedBulkSampleIds.filter((id) => defaultSamples.some((sample) => sample.id === id)) : [],
+    sampleFormMode: null,
+    editingNoteId: null,
+    editingExceptionId: null,
     pbcEditing: false,
     workpaperEditing: false,
     samples: defaultSamples
@@ -242,6 +269,29 @@
 
   function getSelectedSample() {
     return samples.find((sample) => sample.id === appState.selectedSampleId) || null;
+  }
+
+  function latestPbc(sample) {
+    return sample.pbcRequests[sample.pbcRequests.length - 1] || null;
+  }
+
+  function pbcStatusFor(sample) {
+    return latestPbc(sample)?.status || "Not Required";
+  }
+
+  function isPbcAddressed(sample) {
+    if (!pbcRequirements(sample).length) return true;
+    return sample.pbcRequests.length > 0 && sample.pbcRequests.every((request) => ["Received", "Closed"].includes(request.status));
+  }
+
+  function relatedEvidenceRefs(sample) {
+    return Object.values(sample.evidence)
+      .filter((item) => ["Not Received", "Exception", "Removed"].includes(item.status))
+      .map((item) => item.ref);
+  }
+
+  function nextRecordId(prefix, sample, collection) {
+    return `${prefix}-${sample.id}-${String(collection.length + 1).padStart(2, "0")}`;
   }
 
   function activityTimestamp() {
@@ -301,17 +351,15 @@
   }
 
   function managerReviewSummary(sample) {
-    const open = sample.managerComments.filter((comment) => !comment.resolved);
-    const resolved = sample.managerComments.filter((comment) => comment.resolved);
-    let status = "Not ready for review";
-    if (sample.taskStatus === "Reviewed") status = "Review complete";
-    else if (open.length) status = "Review points open";
-    else if (sample.taskStatus === "Ready for Manager Review" || sample.workingPaperStatus === "Ready for Manager Review") status = "Ready for manager review";
+    const open = sample.managerComments.filter((comment) => comment.status !== "Resolved");
+    const resolved = sample.managerComments.filter((comment) => comment.status === "Resolved");
+    let status = sample.reviewStatus || "Not Submitted";
+    if (open.length && !["Approved", "Reviewed"].includes(status)) status = "Review points open";
 
     let conclusion = "Complete the associate procedures and route the sample for review.";
     if (open.length) conclusion = "Address all open review comments before final manager sign-off.";
-    else if (sample.taskStatus === "Reviewed") conclusion = "Manager review is complete; no open review points remain.";
-    else if (sample.taskStatus === "Ready for Manager Review") conclusion = sample.risk.findings.length
+    else if (["Approved", "Reviewed"].includes(sample.reviewStatus)) conclusion = "Manager review is complete; no open review points remain.";
+    else if (sample.reviewStatus === "Submitted") conclusion = sample.risk.findings.length
       ? "Review the documented exception, assertion impact, and proposed resolution before sign-off."
       : "The sample is ready for manager review and sign-off."
 
@@ -320,26 +368,29 @@
 
   function pbcRequirements(sample) {
     const requirements = Object.values(sample.evidence)
-      .filter((item) => ["Not Received", "Exception"].includes(item.status))
+      .filter((item) => ["Not Received", "Exception", "Removed"].includes(item.status))
       .map((item) => `${item.label} (${item.ref}) for invoice ${sample.invoiceNumber}${item.status === "Exception" ? " and an explanation of the evidence exception" : ""}`);
     if (sample.risk.mismatch) requirements.push(`Invoice-to-GL reconciliation and management explanation for the ${signedCurrency(sample.risk.difference)} difference`);
     if (sample.risk.recognizedBeforeShipment) requirements.push("Shipping terms, proof of delivery, and management's revenue cutoff analysis");
     if (sample.risk.delayedCash) requirements.push(`Subsequent cash receipt support and collectibility explanation (${sample.risk.cashDays} days after recognition)`);
     if (sample.exceptionDecision === "Follow-up Required") requirements.push("Management's written response to the open audit follow-up and proposed resolution");
+    sample.exceptions.filter((exception) => ["Open", "Pending Client", "Reopened"].includes(exception.status)).forEach((exception) => requirements.push(`${exception.id}: management response and support for ${exception.type}`));
     return requirements;
   }
 
   function reviewReadiness(sample) {
     const pbcRequired = pbcRequirements(sample).length > 0;
-    const evidenceComplete = Object.values(sample.evidence).every((item) => item.status === "Reviewed" || item.tickmark === "N/A Not applicable");
+    const pbcAddressed = isPbcAddressed(sample);
+    const evidenceComplete = Object.values(sample.evidence).every((item) => ["Reviewed", "Exception", "Removed"].includes(item.status) || item.tickmark === "N/A Not applicable" || (item.status === "Not Received" && pbcAddressed));
+    const criticalExceptions = sample.exceptions.filter((exception) => exception.dollarImpact > engagement.postingThreshold && exception.status !== "Resolved");
+    const criticalDocumented = criticalExceptions.every((exception) => exception.rootCause && exception.managementExplanation && exception.proposedResolution);
     const items = [
       { key: "started", label: "Review started", state: sample.taskStatus === "Not Started" ? "Missing" : "Completed" },
-      { key: "evidence", label: "Evidence review completed", state: evidenceComplete ? "Completed" : "Missing" },
+      { key: "evidence", label: "Evidence statuses assessed", state: evidenceComplete ? "Completed" : "Missing" },
       { key: "exception", label: "Exception decision completed", state: sample.exceptionDecision === "Not Assessed" ? "Missing" : "Completed" },
-      { key: "notes", label: "Audit note saved", state: sample.auditNotes.length ? "Completed" : "Missing" },
-      { key: "pbc", label: "PBC request addressed if required", state: pbcRequired ? (sample.pbcAddressed && ["Received", "Not Required"].includes(sample.pbcStatus) ? "Completed" : "Missing") : "Not applicable" },
-      { key: "generated", label: "Working paper generated", state: sample.workingPaperDraft ? "Completed" : "Missing" },
-      { key: "saved", label: "Working paper saved", state: sample.workingPaperSaved && !sample.workingPaperStale ? "Completed" : "Missing" }
+      { key: "pbc", label: "PBC requests addressed if required", state: pbcRequired ? (isPbcAddressed(sample) ? "Completed" : "Missing") : "Not applicable" },
+      { key: "saved", label: "Working paper saved", state: sample.workingPaperSaved && !sample.workingPaperStale ? "Completed" : "Missing" },
+      { key: "critical", label: "Open critical exceptions documented", state: criticalDocumented ? "Completed" : "Missing" }
     ];
     return { items, ready: items.every((item) => item.state !== "Missing"), missing: items.filter((item) => item.state === "Missing"), pbcRequired };
   }
@@ -349,11 +400,13 @@
     const missingEvidence = Object.values(sample.evidence).filter((item) => item.status === "Not Received");
     if (sample.taskStatus === "Reviewed") return { title: `Review complete for ${sample.id}`, recommendation: "No further action is required unless the sample is reopened.", target: "managerReviewPanel" };
     if (sample.taskStatus === "Not Started") return { title: `Start review for ${sample.id}`, recommendation: "Click Start Review to begin the audit procedure.", action: "start", target: "sampleDetail" };
-    if (missingEvidence.length && !sample.pbcAddressed) return { title: "Missing evidence follow-up", recommendation: `Generate and send a PBC request for ${missingEvidence.map((item) => item.label.toLowerCase()).join(", ")}.`, target: "pbcRequestPanel" };
+    if (missingEvidence.length && !isPbcAddressed(sample)) return { title: "Missing evidence follow-up", recommendation: `Attach evidence or generate a PBC request for ${missingEvidence.map((item) => item.label.toLowerCase()).join(", ")}.`, target: "evidenceList" };
     if (!readiness.items.find((item) => item.key === "evidence" && item.state === "Completed")) return { title: "Complete evidence review", recommendation: "Review each evidence item, assign a tickmark, and document any follow-up note.", target: "evidenceList" };
     if (sample.exceptionDecision === "Not Assessed") return { title: "Exception decision", recommendation: "Evaluate the risk indicators and record the auditor disposition.", target: "exceptionDecisionActions" };
     if (!sample.auditNotes.length) return { title: "Document audit procedures", recommendation: "Save an audit note describing the work performed and conclusion reached.", target: "auditNotesInput" };
-    if (readiness.pbcRequired && !sample.pbcAddressed) return { title: "Address client follow-up", recommendation: sample.pbcStatus === "Sent" ? "Monitor the PBC request and mark it received when support arrives." : "Generate and complete the required PBC request.", target: "pbcRequestPanel" };
+    if (readiness.pbcRequired && !isPbcAddressed(sample)) return { title: "Address client follow-up", recommendation: pbcStatusFor(sample) === "Sent" ? "Monitor the PBC request and mark it received when support arrives." : "Generate and complete the required PBC request.", target: "pbcRequestPanel" };
+    const openException = sample.exceptions.find((exception) => exception.status !== "Resolved");
+    if (openException) return { title: "Resolve open exception", recommendation: `Resolve or document ${openException.id} before manager submission.`, target: "exceptionTrackerPanel" };
     if (!sample.workingPaperDraft) return { title: "Working paper preparation", recommendation: "Generate the selected sample working paper draft.", action: "generate", target: "working-paper" };
     if (!sample.workingPaperSaved || sample.workingPaperStale) return { title: "Save working paper", recommendation: "Review the draft, resolve stale content, and save the working paper.", target: "workingPaperEditorPanel" };
     if (sample.taskStatus !== "Ready for Manager Review") return { title: "Manager review readiness", recommendation: "All preparer checks are complete. Submit the sample for manager review.", action: "submit", target: "readinessPanel" };
@@ -382,28 +435,25 @@
       missingRefs.length ? `${missingRefs.join(", ")} ${missingRefs.length === 1 ? "was" : "were"} not provided as of the review date and no successful inspection is asserted.` : "No required evidence is currently marked Not Received.",
       exceptionRefs.length ? `${exceptionRefs.join(", ")} ${exceptionRefs.length === 1 ? "contains" : "contain"} an evidence exception requiring disposition.` : "No evidence item is currently marked Exception."
     ].join(" ");
-    const exceptions = sample.risk.findings.length
-      ? sample.risk.findings.map((finding) => `- ${finding}`).join("\n")
-      : "- No exceptions noted.";
-    const notes = sample.auditNotes.length ? sample.auditNotes.map((note) => `- ${note.timestamp}: ${note.text}`).join("\n") : "No associate notes documented.";
+    const automatedExceptions = sample.risk.findings.map((finding) => `- Automated indicator: ${finding}`);
+    const trackedExceptions = sample.exceptions.map((exception) => `- ${exception.id} | ${exception.type} | ${exception.assertion} | ${currency(exception.dollarImpact)} | ${exception.status} | Resolution: ${exception.proposedResolution || "Not documented"}`);
+    const exceptions = [...automatedExceptions, ...trackedExceptions].length ? [...automatedExceptions, ...trackedExceptions].join("\n") : "- No exceptions noted.";
+    const notes = sample.auditNotes.length ? sample.auditNotes.slice().sort((a, b) => Number(b.pinned) - Number(a.pinned)).map((note) => `- ${note.pinned ? "[PINNED] " : ""}${note.type} | ${note.timestamp}: ${note.text}`).join("\n") : "No associate notes documented.";
+    const pbcSummary = sample.pbcRequests.length ? sample.pbcRequests.map((request) => `- ${request.id} | ${request.status} | Due ${request.dueDate || "Not set"} | Evidence: ${request.evidenceRefs.join(", ") || "None"}`).join("\n") : "- No PBC request created.";
     const reviewComments = sample.managerComments.length
-      ? sample.managerComments.map((comment) => `- ${comment.resolved ? "Resolved" : "Open"}: ${comment.text}${comment.response ? ` | Associate response: ${comment.response}` : ""}`).join("\n")
+      ? sample.managerComments.map((comment) => `- ${comment.status}: ${comment.text}${comment.response ? ` | Associate response: ${comment.response}` : ""}`).join("\n")
       : "- No manager review comments.";
 
-    return `AUDIT EVIDENCE COPILOT — REVENUE TEST OF DETAILS\nSample ${sample.id} | ${sample.customer}\nPrepared ${today()}\n\nOBJECTIVE\nTo test the occurrence, accuracy, cutoff, and collectibility of the selected revenue transaction.\n\nPROCEDURE PERFORMED\nSelected invoice ${sample.invoiceNumber} for ${currency(sample.invoiceAmount)} and compared the recorded GL amount of ${currency(sample.glAmount)} to source documentation. Compared the revenue date (${formatDate(sample.revenueDate)}) with shipment (${formatDate(sample.shippingDate)}) and evaluated the subsequent receipt dated ${formatDate(sample.cashReceiptDate)}. ${evidenceProcedure}\n\nEVIDENCE REVIEWED\n${evidenceReviewed}\n\nEVIDENCE REFERENCES\n${evidenceReferences}\n\nEXCEPTIONS NOTED\n${exceptions}\nAuditor disposition: ${sample.exceptionDecision}\nRisk assessment: ${sample.risk.score}/100 — ${sample.risk.level}\n\nASSERTION IMPACT\n${outcome.assertions.join(", ")}\n\nMANAGEMENT EXPLANATION\n${sample.managementExplanation || "No management explanation documented."}\n\nPROPOSED RESOLUTION\n${sample.proposedResolution || "No proposed resolution documented."}\n\nAUDIT NOTES\n${notes}\n\nPBC STATUS\n${sample.pbcStatus}${pbcRequirements(sample).length ? ` — Requested items: ${pbcRequirements(sample).join("; ")}` : ""}\n\nAUDIT CONCLUSION\n${outcome.conclusion}\nFollow-up: ${outcome.followUp}\n\nPREPARED BY\n${engagement.preparer.name} · ${engagement.preparer.role} — ${today()}\n\nREVIEWED BY\n${engagement.reviewer.name} · ${engagement.reviewer.role} — ${sample.taskStatus === "Reviewed" ? today() : "Pending"}\n\nREVIEW STATUS\n${manager.status}\nOpen comments: ${manager.open.length} | Resolved comments: ${manager.resolved.length}\n\nMANAGER REVIEW POINTS\n${reviewComments}`;
+    return `AUDIT EVIDENCE COPILOT — REVENUE TEST OF DETAILS\nSample ${sample.id} | ${sample.customer}\nPrepared ${today()}\n\nOBJECTIVE\nTo test the occurrence, accuracy, cutoff, and collectibility of the selected revenue transaction.\n\nPROCEDURE PERFORMED\nSelected invoice ${sample.invoiceNumber} for ${currency(sample.invoiceAmount)} and compared the recorded GL amount of ${currency(sample.glAmount)} to source documentation. Compared the revenue date (${formatDate(sample.revenueDate)}) with shipment (${formatDate(sample.shippingDate)}) and evaluated the subsequent receipt dated ${formatDate(sample.cashReceiptDate)}. ${evidenceProcedure}\n\nEVIDENCE REVIEWED\n${evidenceReviewed}\n\nEVIDENCE REFERENCES AND TICKMARKS\n${evidenceReferences}\n\nEXCEPTIONS NOTED\n${exceptions}\nAuditor disposition: ${sample.exceptionDecision}\nRisk assessment: ${sample.risk.score}/100 — ${sample.risk.level}\n\nASSERTION IMPACT\n${outcome.assertions.join(", ")}\n\nMANAGEMENT EXPLANATION\n${sample.managementExplanation || "No management explanation documented."}\n\nPROPOSED RESOLUTION\n${sample.proposedResolution || "No proposed resolution documented."}\n\nAUDIT NOTES\n${notes}\n\nPBC REQUESTS\n${pbcSummary}\n\nAUDIT CONCLUSION\n${outcome.conclusion}\nFollow-up: ${outcome.followUp}\n\nPREPARED BY\n${engagement.preparer.name} · ${engagement.preparer.role} — ${today()}\n\nREVIEWED BY\n${engagement.reviewer.name} · ${engagement.reviewer.role} — ${sample.taskStatus === "Reviewed" ? today() : "Pending"}\n\nREVIEW STATUS\n${sample.reviewStatus} | ${manager.status}\nOpen comments: ${manager.open.length} | Resolved comments: ${manager.resolved.length}\n\nMANAGER REVIEW POINTS\n${reviewComments}`;
   }
 
   function refreshGeneratedArtifacts(sample) {
     sample.risk = assessRisk(sample);
-    if (pbcRequirements(sample).length) {
-      if (sample.pbcRequest && sample.pbcStatus === "Drafted") {
-        sample.pbcRequest = buildPbcText(sample);
-      }
-    } else {
-      if (!sample.pbcRequest || !["Sent", "Received"].includes(sample.pbcStatus)) {
-        sample.pbcStatus = "Not Required";
-        sample.pbcRequest = "";
-      }
+    const request = latestPbc(sample);
+    if (request?.status === "Draft") {
+      request.text = buildPbcText(sample);
+      request.evidenceRefs = relatedEvidenceRefs(sample);
+      request.updatedAt = activityTimestamp();
     }
     syncWorkingPaperSource(sample);
   }
@@ -440,7 +490,14 @@
     const inProgress = samples.filter((sample) => sample.taskStatus === "In Progress").length;
     const active = samples.filter((sample) => ["Not Started", "In Progress"].includes(sample.taskStatus)).length;
     const followUp = samples.filter((sample) => ["Waiting for Client", "Exception Noted"].includes(sample.taskStatus)).length;
-    const openPbc = samples.filter((sample) => ["Drafted", "Sent"].includes(sample.pbcStatus)).length;
+    const allPbcRequests = samples.flatMap((sample) => sample.pbcRequests);
+    const openPbc = allPbcRequests.filter((request) => ["Draft", "Sent", "Overdue"].includes(request.status)).length;
+    const overduePbc = allPbcRequests.filter((request) => request.status === "Overdue").length;
+    const receivedPbc = allPbcRequests.filter((request) => request.status === "Received").length;
+    const allExceptions = samples.flatMap((sample) => sample.exceptions);
+    const openExceptions = allExceptions.filter((exception) => exception.status !== "Resolved").length;
+    const resolvedExceptions = allExceptions.filter((exception) => exception.status === "Resolved").length;
+    const highImpactExceptions = allExceptions.filter((exception) => exception.dollarImpact > engagement.postingThreshold).length;
     const completion = Math.round(((reviewed + ready) / samples.length) * 100);
 
     const testedValue = samples.reduce((total, sample) => total + sample.invoiceAmount, 0);
@@ -449,9 +506,13 @@
       ["#187452", "#e7f5ef", "Completed samples", reviewed, `${Math.round((reviewed / samples.length) * 100)}% completed`],
       ["#b7373f", "#fcebed", "High-risk samples", high, `${samples.filter((sample) => sample.exceptionDecision === "Exception Noted").length} documented exceptions`],
       ["#9a5d0b", "#fff2dc", "Missing evidence", missing, `${samples.filter((sample) => sample.risk.missing.length).length} samples affected`],
-      ["#9a5d0b", "#fff2dc", "Open PBC requests", openPbc, "Drafted or sent"],
+      ["#9a5d0b", "#fff2dc", "Open PBC requests", openPbc, "Draft, sent, or overdue"],
       ["#1769d2", "#eaf2fc", "Ready for manager review", ready, `${reviewed} already reviewed`]
     ].map(([color, pale, label, value, detail]) => `<article class="panel metric-card" style="--metric-color:${color};--metric-pale:${pale}"><div class="metric-top"><span class="metric-label">${label}</span><span class="metric-icon">●</span></div><strong>${value}</strong><p>${detail}</p></article>`).join("");
+    if (byId("operationsMetricGrid")) byId("operationsMetricGrid").innerHTML = [
+      ["Overdue PBC", overduePbc, "amber"], ["Received PBC", receivedPbc, "green"], ["Open exceptions", openExceptions, "red"],
+      ["Resolved exceptions", resolvedExceptions, "green"], ["High-impact exceptions", highImpactExceptions, "red"], ["Bulk selected", appState.selectedBulkSampleIds.length, "blue"]
+    ].map(([label, value, tone]) => `<div class="operations-metric ${tone}"><small>${label}</small><strong>${value}</strong></div>`).join("");
     byId("progressPercent").textContent = `${completion}%`;
     byId("progressBar").style.width = `${completion}%`;
     byId("progressBar").parentElement.setAttribute("aria-valuenow", completion);
@@ -474,7 +535,7 @@
       exceptionFilterCount: samples.filter((sample) => sample.taskStatus === "Exception Noted").length,
       readyFilterCount: ready,
       reviewedFilterCount: reviewed,
-      openPbcFilterCount: openPbc
+      openPbcFilterCount: samples.filter((sample) => sample.pbcRequests.some((request) => ["Draft", "Sent", "Overdue"].includes(request.status))).length
     };
     Object.entries(filterCounts).forEach(([id, value]) => { if (byId(id)) byId(id).textContent = value; });
 
@@ -487,6 +548,16 @@
         <span><strong>${sample.id} · ${escapeHtml(sample.customer)}</strong><span>${sample.risk.missing.length ? `${sample.risk.missing.length} evidence item${sample.risk.missing.length === 1 ? "" : "s"} outstanding` : sample.risk.findings[0]}</span></span>
         <b>${sample.risk.score} ${sample.risk.level}</b>
       </button>`).join("") : '<div class="empty-queue">No follow-up items remain.</div>';
+    if (byId("platformAlerts")) {
+      const alerts = [
+        ["High-risk samples not reviewed", samples.filter((sample) => sample.risk.level === "High" && sample.taskStatus !== "Reviewed").length, "high"],
+        ["PBC requests overdue", overduePbc, "warning"],
+        ["Open manager comments", samples.reduce((total, sample) => total + managerReviewSummary(sample).open.length, 0), "warning"],
+        ["Samples ready for review", ready, "info"],
+        ["Missing evidence items", missing, "high"]
+      ];
+      byId("platformAlerts").innerHTML = alerts.map(([label, value, tone]) => `<div class="platform-alert ${tone}"><span>${value}</span><strong>${label}</strong></div>`).join("");
+    }
   }
 
   function filteredSamples() {
@@ -499,7 +570,7 @@
         "In Progress": sample.taskStatus === "In Progress",
         "High Risk": sample.risk.level === "High",
         "Missing Evidence": sample.risk.missing.length > 0,
-        "Open PBC": ["Drafted", "Sent"].includes(sample.pbcStatus),
+        "Open PBC": sample.pbcRequests.some((request) => ["Draft", "Sent", "Overdue"].includes(request.status)),
         "Waiting for Client": sample.taskStatus === "Waiting for Client",
         "Exception Noted": sample.taskStatus === "Exception Noted",
         "Ready for Manager Review": sample.taskStatus === "Ready for Manager Review",
@@ -521,6 +592,18 @@
     }
   }
 
+  function renderBulkControls(results) {
+    appState.selectedBulkSampleIds = appState.selectedBulkSampleIds.filter((id) => samples.some((sample) => sample.id === id));
+    const count = appState.selectedBulkSampleIds.length;
+    byId("bulkSelectionCount").textContent = `${count} selected`;
+    byId("bulkActionBar").classList.toggle("has-selection", count > 0);
+    byId("selectAllSamples").checked = results.length > 0 && results.every((sample) => appState.selectedBulkSampleIds.includes(sample.id));
+    byId("bulkMarkInProgressButton").disabled = !count;
+    byId("bulkGeneratePbcButton").disabled = !count;
+    byId("bulkExportJsonButton").disabled = !count;
+    byId("bulkClearButton").disabled = !count;
+  }
+
   function renderSamplesView() {
     const results = filteredSamples();
     reconcileSelection(results);
@@ -529,7 +612,8 @@
     const workspace = byId("sampleDetail");
 
     body.innerHTML = results.map((sample) => {
-      return `<tr tabindex="0" role="button" aria-label="Open ${sample.id}" data-sample-id="${sample.id}" class="${sample.id === appState.selectedSampleId ? "selected" : ""}">
+      return `<tr tabindex="0" aria-label="Open ${sample.id}" data-sample-id="${sample.id}" class="${sample.id === appState.selectedSampleId ? "selected" : ""}">
+        <td class="bulk-cell"><input type="checkbox" class="bulk-sample-checkbox" data-bulk-sample-id="${sample.id}" aria-label="Select ${sample.id} for bulk action" ${appState.selectedBulkSampleIds.includes(sample.id) ? "checked" : ""}></td>
         <td><span class="sample-id">${sample.id}</span></td>
         <td><strong>${escapeHtml(sample.customer)}</strong></td>
         <td>${sample.invoiceNumber}</td>
@@ -540,26 +624,31 @@
         <td><strong>${sample.risk.score}</strong></td>
         <td><span class="risk-badge ${sample.risk.level.toLowerCase()}">${sample.risk.level}</span></td>
         <td><span class="workflow-badge ${slug(sample.taskStatus)}">${sample.taskStatus}</span></td>
-        <td><span class="workflow-badge ${slug(sample.pbcStatus)}">${sample.pbcStatus}</span></td>
+        <td><span class="workflow-badge ${slug(pbcStatusFor(sample))}">${pbcStatusFor(sample)}</span></td>
       </tr>`;
     }).join("");
 
     empty.hidden = results.length > 0;
     workspace.hidden = results.length === 0;
     byId("tableResultCount").textContent = results.length ? `Showing ${results.length} of ${samples.length} samples` : `No samples match the current filters (0 of ${samples.length})`;
+    renderBulkControls(results);
     if (results.length) renderDetail(getSelectedSample());
   }
 
   function renderEvidence(sample) {
     byId("evidenceList").innerHTML = Object.entries(sample.evidence).map(([key, item]) => {
       const reviewed = item.status === "Reviewed";
-      return `<div class="evidence-item ${reviewed ? "available" : item.status === "Exception" ? "exception" : item.status === "Not Received" ? "missing" : "received"}">
+      return `<div class="evidence-item ${reviewed ? "available" : item.status === "Exception" ? "exception" : ["Not Received", "Removed"].includes(item.status) ? "missing" : "received"}">
         <span class="evidence-icon" aria-hidden="true">${reviewed ? "✓" : item.status === "Exception" ? "!" : "•"}</span>
-        <span class="evidence-copy"><strong>${item.label}</strong><small>${item.ref}</small></span>
+        <span class="evidence-copy"><strong>${item.label}</strong><small>${item.ref}${item.fileName ? ` · ${escapeHtml(item.fileName)}` : " · No attachment"}</small></span>
         <div class="evidence-controls">
+          <label><span>Reference ID</span><input type="text" data-evidence-field="ref" data-evidence-field-key="${key}" aria-label="${item.label} reference ID" value="${escapeHtml(item.ref)}"></label>
+          <label><span>File name</span><input type="text" data-evidence-field="fileName" data-evidence-field-key="${key}" aria-label="${item.label} file name" value="${escapeHtml(item.fileName)}" placeholder="e.g., invoice-250184.pdf"></label>
+          <label><span>Received date</span><input type="date" data-evidence-field="receivedDate" data-evidence-field-key="${key}" aria-label="${item.label} received date" value="${escapeHtml(item.receivedDate)}"></label>
           <label><span>Status</span><select data-evidence-key="${key}" aria-label="${item.label} status">${evidenceStatuses.map((status) => `<option value="${status}" ${status === item.status ? "selected" : ""}>${status}</option>`).join("")}</select></label>
           <label><span>Tickmark</span><select data-tickmark-key="${key}" aria-label="${item.label} tickmark">${tickmarkOptions.map((tickmark) => `<option value="${tickmark}" ${tickmark === item.tickmark ? "selected" : ""}>${tickmark}</option>`).join("")}</select></label>
           <label class="evidence-note-control"><span>Evidence note <em>optional</em></span><input type="text" data-evidence-note-key="${key}" aria-label="${item.label} evidence note" value="${escapeHtml(item.note)}" placeholder="Add a short cross-reference note"></label>
+          <div class="evidence-quick-actions"><button type="button" data-evidence-action="attach" data-evidence-action-key="${key}">Attach Evidence</button><button type="button" data-evidence-action="received" data-evidence-action-key="${key}">Mark Received</button><button type="button" data-evidence-action="reviewed" data-evidence-action-key="${key}">Mark Reviewed</button><button type="button" data-evidence-action="exception" data-evidence-action-key="${key}">Mark Exception</button><button type="button" data-evidence-action="remove" data-evidence-action-key="${key}">Remove Evidence</button></div>
         </div>
       </div>`;
     }).join("");
@@ -665,13 +754,91 @@
     byId("impactConclusion").innerHTML = `<strong>Audit conclusion</strong><br>${outcome.conclusion}`;
   }
 
+  function renderExceptionTracker(sample) {
+    const open = sample.exceptions.filter((exception) => exception.status !== "Resolved").length;
+    byId("exceptionTrackerBadge").textContent = `${open} Open`;
+    byId("exceptionTrackerList").innerHTML = sample.exceptions.length ? sample.exceptions.map((exception) => {
+      const aboveCtt = exception.dollarImpact > engagement.postingThreshold;
+      const abovePm = exception.dollarImpact > engagement.performanceMateriality;
+      return `<article class="exception-record ${slug(exception.status)}"><header><div><strong>${exception.id} · ${escapeHtml(exception.type)}</strong><small>${escapeHtml(exception.assertion)} · ${currency(exception.dollarImpact)}</small></div><span class="workflow-badge ${slug(exception.status)}">${exception.status}</span></header><p>${escapeHtml(exception.rootCause || "Root cause not documented")}</p><dl><div><dt>Above CTT</dt><dd>${aboveCtt ? "Yes" : "No"}</dd></div><div><dt>Above PM</dt><dd>${abovePm ? "Yes" : "No"}</dd></div><div><dt>Resolution</dt><dd>${escapeHtml(exception.proposedResolution || "Not documented")}</dd></div></dl><footer><button type="button" data-exception-record-action="edit" data-exception-id="${exception.id}">Edit</button>${exception.status === "Resolved" ? `<button type="button" data-exception-record-action="reopen" data-exception-id="${exception.id}">Reopen</button>` : `<button type="button" data-exception-record-action="resolve" data-exception-id="${exception.id}">Resolve</button>`}</footer></article>`;
+    }).join("") : '<div class="review-empty">No tracked exceptions. Automated risk indicators remain visible above.</div>';
+  }
+
+  function resetExceptionForm() {
+    appState.editingExceptionId = null;
+    byId("trackerExceptionType").value = "Amount Mismatch";
+    byId("trackerAssertion").value = "Accuracy";
+    byId("trackerDollarImpact").value = "0";
+    byId("trackerRootCause").value = "";
+    byId("trackerManagementExplanation").value = "";
+    byId("trackerProposedResolution").value = "";
+    byId("saveTrackedExceptionButton").textContent = "Create Exception";
+  }
+
+  function saveTrackedException() {
+    const sample = getSelectedSample();
+    if (!sample) return;
+    const values = {
+      type: byId("trackerExceptionType").value,
+      assertion: byId("trackerAssertion").value,
+      dollarImpact: Number(byId("trackerDollarImpact").value) || 0,
+      rootCause: byId("trackerRootCause").value.trim(),
+      managementExplanation: byId("trackerManagementExplanation").value.trim(),
+      proposedResolution: byId("trackerProposedResolution").value.trim()
+    };
+    const existing = sample.exceptions.find((exception) => exception.id === appState.editingExceptionId);
+    if (existing) {
+      Object.assign(existing, values, { updatedAt: activityTimestamp() });
+      addActivity(sample, "Exception edited", existing.id);
+    } else {
+      const timestamp = activityTimestamp();
+      const exception = { id: nextRecordId("EXC", sample, sample.exceptions), ...values, status: "Open", createdAt: timestamp, updatedAt: timestamp };
+      sample.exceptions.push(exception);
+      sample.taskStatus = "Exception Noted";
+      sample.exceptionDecision = "Exception Noted";
+      addActivity(sample, "Exception created", exception.id);
+    }
+    resetExceptionForm();
+    syncWorkingPaperSource(sample);
+    saveState();
+    renderAll();
+    showToast(existing ? "Exception updated." : "Exception created.");
+  }
+
+  function handleExceptionRecordAction(event) {
+    const button = event.target.closest("[data-exception-record-action]");
+    const sample = getSelectedSample();
+    const exception = sample?.exceptions.find((item) => item.id === button?.dataset.exceptionId);
+    if (!button || !sample || !exception) return;
+    const action = button.dataset.exceptionRecordAction;
+    if (action === "edit") {
+      appState.editingExceptionId = exception.id;
+      byId("trackerExceptionType").value = exception.type;
+      byId("trackerAssertion").value = exception.assertion;
+      byId("trackerDollarImpact").value = exception.dollarImpact;
+      byId("trackerRootCause").value = exception.rootCause;
+      byId("trackerManagementExplanation").value = exception.managementExplanation;
+      byId("trackerProposedResolution").value = exception.proposedResolution;
+      byId("saveTrackedExceptionButton").textContent = "Save Exception Changes";
+      byId("trackerRootCause").focus();
+      return;
+    }
+    exception.status = action === "resolve" ? "Resolved" : "Reopened";
+    exception.updatedAt = activityTimestamp();
+    addActivity(sample, action === "resolve" ? "Exception resolved" : "Exception reopened", exception.id);
+    syncWorkingPaperSource(sample);
+    saveState();
+    renderAll();
+    showToast(`Exception ${action === "resolve" ? "resolved" : "reopened"}.`);
+  }
+
   function renderWorkflowProgress(sample) {
     const requirements = pbcRequirements(sample);
     const complete = {
       select: true,
       evidence: sample.taskStatus !== "Not Started" && reviewReadiness(sample).items.find((item) => item.key === "evidence").state === "Completed",
       exception: sample.exceptionDecision !== "Not Assessed",
-      pbc: !requirements.length || (sample.pbcAddressed && ["Received", "Not Required"].includes(sample.pbcStatus)),
+      pbc: !requirements.length || isPbcAddressed(sample),
       workpaper: Boolean(sample.workingPaperDraft && sample.workingPaperSaved && !sample.workingPaperStale),
       manager: sample.taskStatus === "Reviewed"
     };
@@ -711,7 +878,7 @@
 
   function renderSavedNotes(sample) {
     byId("savedNotesList").innerHTML = sample.auditNotes.length
-      ? sample.auditNotes.map((note) => `<article class="saved-note"><div><strong>Associate note</strong><small>${escapeHtml(note.timestamp)}</small></div><p>${escapeHtml(note.text)}</p></article>`).join("")
+      ? sample.auditNotes.slice().sort((a, b) => Number(b.pinned) - Number(a.pinned)).map((note) => `<article class="saved-note ${note.pinned ? "pinned" : ""}" data-note-id="${note.id}"><div><strong>${note.pinned ? "★ " : ""}${escapeHtml(note.type)}</strong><small>${escapeHtml(note.timestamp)}</small></div><p>${escapeHtml(note.text)}</p><footer><button type="button" data-note-action="edit" data-note-id="${note.id}">Edit</button><button type="button" data-note-action="pin" data-note-id="${note.id}">${note.pinned ? "Unpin" : "Pin Important"}</button><button type="button" data-note-action="delete" data-note-id="${note.id}">Delete</button></footer></article>`).join("")
       : '<div class="review-empty">No saved audit notes.</div>';
   }
 
@@ -724,20 +891,26 @@
 
   function renderPbc(sample) {
     const required = pbcRequirements(sample).length > 0;
-    byId("pbcRequestId").textContent = sample.id;
-    byId("pbcRequestCustomer").textContent = sample.customer;
-    byId("pbcStatusBadge").textContent = sample.pbcStatus;
-    byId("pbcStatusBadge").className = `workflow-badge ${slug(sample.pbcStatus)}`;
-    byId("pbcRequestText").value = sample.pbcRequest;
-    byId("pbcRequestText").placeholder = required ? "Generate or edit the client request here." : "No additional client support is required.";
-    byId("pbcRequestText").disabled = !required || !appState.pbcEditing;
+    const request = latestPbc(sample);
+    const status = pbcStatusFor(sample);
+    byId("pbcRequestId").textContent = request?.id || `${sample.id} · No request`;
+    byId("pbcRequestCustomer").textContent = `${sample.customer} · ${sample.pbcRequests.length} request${sample.pbcRequests.length === 1 ? "" : "s"}`;
+    byId("pbcStatusBadge").textContent = status;
+    byId("pbcStatusBadge").className = `workflow-badge ${slug(status)}`;
+    byId("pbcRequestText").value = request?.text || "";
+    byId("pbcRequestText").placeholder = required ? "Create or generate a client request for the outstanding support." : "No request exists. Create one if additional client follow-up is needed.";
+    byId("pbcRequestText").disabled = !request || !appState.pbcEditing;
+    byId("pbcDueDate").value = request?.dueDate || "";
+    byId("pbcDueDate").disabled = !request || !appState.pbcEditing;
+    byId("pbcMeta").textContent = request ? `Related evidence: ${request.evidenceRefs.join(", ") || "None"} · Updated ${request.updatedAt}` : required ? `${pbcRequirements(sample).length} follow-up item${pbcRequirements(sample).length === 1 ? "" : "s"} identified` : "No client follow-up required";
     byId("generatePbcButton").disabled = !required;
-    byId("editPbcButton").disabled = !required || !sample.pbcRequest;
+    byId("editPbcButton").disabled = !request || status === "Closed";
     byId("editPbcButton").textContent = appState.pbcEditing ? "Finish Editing" : "Edit PBC Request";
-    byId("copyPbcButton").disabled = !sample.pbcRequest;
-    byId("markPbcSentButton").disabled = !sample.pbcRequest || ["Sent", "Received"].includes(sample.pbcStatus);
-    byId("markPbcReceivedButton").disabled = sample.pbcStatus !== "Sent";
-    byId("markPbcNotRequiredButton").disabled = required && sample.pbcStatus === "Sent";
+    byId("copyPbcButton").disabled = !request?.text;
+    byId("markPbcSentButton").disabled = !request || !["Draft", "Overdue"].includes(status);
+    byId("markPbcReceivedButton").disabled = !request || !["Sent", "Overdue"].includes(status);
+    byId("markPbcOverdueButton").disabled = !request || status !== "Sent";
+    byId("closePbcButton").disabled = !request || status === "Closed";
   }
 
   function renderWorkingPaperEditor(sample) {
@@ -753,6 +926,8 @@
     byId("saveWorkingPaperButton").disabled = !sample.workingPaperDraft || !appState.workpaperEditing;
     byId("markReadyForManagerButton").disabled = false;
     byId("exportWorkingPaperButton").disabled = !sample.workingPaperDraft;
+    byId("workpaperVersionCount").textContent = `${sample.workingPaperVersions.length} version${sample.workingPaperVersions.length === 1 ? "" : "s"}`;
+    byId("workpaperVersionHistory").innerHTML = sample.workingPaperVersions.length ? sample.workingPaperVersions.slice().reverse().map((version) => `<article class="version-record"><div><strong>Version ${version.version}</strong><small>${escapeHtml(version.timestamp)}</small></div><p>${escapeHtml(version.note || "No version note")}</p><button type="button" data-restore-version="${version.version}">Restore</button></article>`).join("") : '<div class="review-empty">No saved working paper versions.</div>';
     byId("workpaperSaveState").textContent = sample.workingPaperStale
       ? "Saved edits preserved · source data changed — regenerate to refresh"
       : sample.workingPaperSaved ? "Saved locally" : sample.workingPaperDraft ? "Draft generated · save required" : "No draft generated";
@@ -764,8 +939,10 @@
     byId("managerOpenCount").textContent = manager.open.length;
     byId("managerResolvedCount").textContent = manager.resolved.length;
     byId("managerConclusion").textContent = manager.conclusion;
+    byId("returnForRevisionButton").disabled = sample.reviewStatus !== "Submitted";
+    byId("approveReviewButton").disabled = sample.reviewStatus !== "Submitted" || manager.open.length > 0;
     byId("managerReviewComments").innerHTML = sample.managerComments.length
-      ? sample.managerComments.slice().reverse().map((comment) => `<div class="review-comment ${comment.resolved ? "resolved" : "open"}"><div class="review-comment-copy"><div class="review-comment-heading"><strong>${comment.resolved ? "Resolved review point" : "Open review point"}</strong><span class="workflow-badge ${comment.resolved ? "reviewed" : "exception-noted"}">${comment.resolved ? "Resolved" : "Open"}</span></div><p>${escapeHtml(comment.text)}</p><small>${escapeHtml(comment.createdAt)}</small>${comment.resolved ? `<div class="associate-response"><b>Associate response</b><p>${escapeHtml(comment.response || "No response documented.")}</p></div>` : `<label for="response-${comment.id}">Associate response</label><textarea id="response-${comment.id}" data-comment-response="${comment.id}" rows="3" placeholder="Document how the review point was addressed…">${escapeHtml(comment.response || "")}</textarea><div class="comment-actions"><button class="secondary-button" type="button" data-save-response="${comment.id}">Save Response</button><button class="primary-button" type="button" data-resolve-comment="${comment.id}">Resolve Comment</button></div>`}</div></div>`).join("")
+      ? sample.managerComments.slice().reverse().map((comment) => `<div class="review-comment ${slug(comment.status)}"><div class="review-comment-copy"><div class="review-comment-heading"><strong>${comment.status} review point</strong><span class="workflow-badge ${slug(comment.status)}">${comment.status}</span></div><p>${escapeHtml(comment.text)}</p><small>${escapeHtml(comment.createdAt)}</small>${comment.status === "Resolved" ? `<div class="associate-response"><b>Associate response</b><p>${escapeHtml(comment.response || "No response documented.")}</p></div><div class="comment-actions"><button class="secondary-button" type="button" data-reopen-comment="${comment.id}">Reopen Comment</button></div>` : `<label for="response-${comment.id}">Associate response</label><textarea id="response-${comment.id}" data-comment-response="${comment.id}" rows="3" placeholder="Document how the review point was addressed…">${escapeHtml(comment.response || "")}</textarea><div class="comment-actions"><button class="secondary-button" type="button" data-save-response="${comment.id}">Save Response</button><button class="primary-button" type="button" data-resolve-comment="${comment.id}">Resolve Comment</button></div>`}</div></div>`).join("")
       : '<div class="review-empty">No manager review comments have been added.</div>';
   }
 
@@ -779,6 +956,8 @@
       button.classList.toggle("active", button.dataset.status === sample.taskStatus);
     });
     byId("auditNotesInput").value = sample.draftAuditNote;
+    const editingNote = sample.auditNotes.find((note) => note.id === appState.editingNoteId);
+    byId("auditNoteType").value = editingNote?.type || "Testing Note";
     byId("noteSaveState").textContent = sample.auditNotes.length ? `${sample.auditNotes.length} saved note${sample.auditNotes.length === 1 ? "" : "s"}` : "No saved notes";
     byId("managerCommentComposer").hidden = true;
     byId("managerCommentInput").value = "";
@@ -787,6 +966,7 @@
     renderAssertions(sample);
     renderExceptionDecision(sample);
     renderExceptionImpact(sample);
+    renderExceptionTracker(sample);
     renderAuditOutcome(sample);
     renderSavedNotes(sample);
     renderPbc(sample);
@@ -820,8 +1000,8 @@
     }
     sample.taskStatus = status;
     if (status === "Waiting for Client" && pbcRequirements(sample).length) {
-      sample.pbcStatus = sample.pbcStatus === "Received" ? "Drafted" : sample.pbcStatus;
-      sample.pbcAddressed = false;
+      const request = latestPbc(sample);
+      if (request?.status === "Received") request.status = "Draft";
     }
     addActivity(sample, status === "In Progress" ? "Review started" : `Status changed to ${status}`);
     syncWorkingPaperSource(sample);
@@ -829,6 +1009,7 @@
       sample.workingPaperStatus = "Reviewed";
       sample.workingPaperStale = false;
       sample.workingPaperSaved = true;
+      sample.reviewStatus = "Reviewed";
     }
     saveState();
     renderAll();
@@ -836,11 +1017,11 @@
   }
 
   function handleEvidenceChange(event) {
-    const control = event.target.closest("[data-evidence-key], [data-tickmark-key], [data-evidence-note-key]");
+    const control = event.target.closest("[data-evidence-key], [data-tickmark-key], [data-evidence-note-key], [data-evidence-field-key]");
     if (!control) return;
     const sample = getSelectedSample();
     if (!sample) return;
-    const key = control.dataset.evidenceKey || control.dataset.tickmarkKey || control.dataset.evidenceNoteKey;
+    const key = control.dataset.evidenceKey || control.dataset.tickmarkKey || control.dataset.evidenceNoteKey || control.dataset.evidenceFieldKey;
     const item = sample.evidence[key];
     if (["Ready for Manager Review", "Reviewed"].includes(sample.taskStatus)) sample.taskStatus = "In Progress";
 
@@ -851,7 +1032,6 @@
       if (control.value !== "Reviewed" && sample.exceptionDecision === "No Exception Noted") sample.exceptionDecision = "Follow-up Required";
       addActivity(sample, "Evidence status updated", `${evidenceLabels[key]}: ${previousStatus} → ${control.value}`);
       refreshGeneratedArtifacts(sample);
-      if (["Not Received", "Exception"].includes(control.value)) sample.pbcAddressed = false;
       showToast(`${evidenceLabels[key]} marked ${control.value.toLowerCase()}.`);
     } else if (control.dataset.tickmarkKey) {
       const previousTickmark = item.tickmark;
@@ -859,16 +1039,64 @@
       addActivity(sample, "Evidence tickmark updated", `${evidenceLabels[key]}: ${previousTickmark} → ${control.value}`);
       syncWorkingPaperSource(sample);
       showToast(`${evidenceLabels[key]} tickmark updated.`);
-    } else {
+    } else if (control.dataset.evidenceNoteKey) {
       const nextNote = control.value.trim();
       if (nextNote === item.note) return;
       item.note = nextNote;
       addActivity(sample, "Evidence note updated", `${evidenceLabels[key]}: ${nextNote || "Note cleared"}`);
       syncWorkingPaperSource(sample);
       showToast(`${evidenceLabels[key]} evidence note saved.`);
+      saveState();
+      renderWorkingPaperEditor(sample);
+      renderActivityLog(sample);
+      return;
+    } else {
+      const field = control.dataset.evidenceField;
+      const nextValue = control.value.trim();
+      if (nextValue === item[field]) return;
+      item[field] = nextValue;
+      addActivity(sample, "Evidence attachment details updated", `${evidenceLabels[key]} ${field}: ${nextValue || "Cleared"}`);
+      if (field === "ref") refreshGeneratedArtifacts(sample); else syncWorkingPaperSource(sample);
+      showToast(`${evidenceLabels[key]} attachment details saved.`);
+      saveState();
+      renderWorkingPaperEditor(sample);
+      renderActivityLog(sample);
+      return;
     }
     saveState();
     renderAll();
+  }
+
+  function handleEvidenceAction(event) {
+    const button = event.target.closest("[data-evidence-action]");
+    if (!button) return;
+    const sample = getSelectedSample();
+    const key = button.dataset.evidenceActionKey;
+    const item = sample?.evidence[key];
+    if (!sample || !item) return;
+    const action = button.dataset.evidenceAction;
+    if (action === "attach" && !item.fileName.trim()) {
+      showToast("Enter a simulated file name before attaching evidence.", "error");
+      return;
+    }
+    const statusMap = { attach: "Received", received: "Received", reviewed: "Reviewed", exception: "Exception", remove: "Removed" };
+    item.status = statusMap[action];
+    item.tickmark = defaultTickmark(item.status);
+    if (["attach", "received"].includes(action) && !item.receivedDate) item.receivedDate = new Date().toISOString().slice(0, 10);
+    if (action === "remove") {
+      item.fileName = "";
+      item.receivedDate = "";
+    }
+    if (action === "exception") {
+      sample.taskStatus = "Exception Noted";
+      sample.exceptionDecision = "Follow-up Required";
+    } else if (["Ready for Manager Review", "Returned for Revision", "Reviewed"].includes(sample.taskStatus)) sample.taskStatus = "In Progress";
+    const activity = { attach: "Evidence attached", received: "Evidence marked received", reviewed: "Evidence marked reviewed", exception: "Evidence marked exception", remove: "Evidence removed" }[action];
+    addActivity(sample, activity, `${item.label} ${item.ref}${item.fileName ? ` · ${item.fileName}` : ""}`);
+    refreshGeneratedArtifacts(sample);
+    saveState();
+    renderAll();
+    showToast(`${item.label}: ${item.status}.`);
   }
 
   function saveAuditNote() {
@@ -879,10 +1107,20 @@
       showToast("Enter an audit note before saving.", "error");
       return;
     }
-    sample.auditNotes.push({ id: `NOTE-${Date.now()}`, text, timestamp: activityTimestamp() });
+    const type = byId("auditNoteType").value;
+    const editing = sample.auditNotes.find((note) => note.id === appState.editingNoteId);
+    if (editing) {
+      editing.text = text;
+      editing.type = type;
+      editing.timestamp = activityTimestamp();
+      addActivity(sample, "Audit note edited", text.slice(0, 120));
+    } else {
+      sample.auditNotes.push({ id: `NOTE-${Date.now()}`, type, text, timestamp: activityTimestamp(), pinned: false });
+      addActivity(sample, "Audit note added", text.slice(0, 120));
+    }
     sample.draftAuditNote = "";
+    appState.editingNoteId = null;
     byId("auditNotesInput").value = "";
-    addActivity(sample, "Audit note saved", text.slice(0, 120));
     syncWorkingPaperSource(sample);
     saveState();
     renderAll();
@@ -893,26 +1131,77 @@
     const sample = getSelectedSample();
     if (!sample) return;
     sample.draftAuditNote = "";
+    appState.editingNoteId = null;
     byId("auditNotesInput").value = "";
     saveState();
     showToast("Draft note cleared. Saved notes were retained.");
   }
 
-  function generatePbcRequest() {
+  function handleNoteAction(event) {
+    const button = event.target.closest("[data-note-action]");
     const sample = getSelectedSample();
-    if (!sample || !pbcRequirements(sample).length) {
-      showToast("No PBC request is required for this sample.", "error");
+    const note = sample?.auditNotes.find((item) => item.id === button?.dataset.noteId);
+    if (!button || !sample || !note) return;
+    if (button.dataset.noteAction === "edit") {
+      appState.editingNoteId = note.id;
+      byId("auditNoteType").value = note.type;
+      byId("auditNotesInput").value = note.text;
+      byId("auditNotesInput").focus();
+      showToast("Audit note loaded for editing.");
       return;
     }
-    sample.pbcRequest = buildPbcText(sample);
-    sample.pbcStatus = "Drafted";
-    sample.pbcAddressed = false;
-    appState.pbcEditing = true;
-    addActivity(sample, "PBC request generated", `${pbcRequirements(sample).length} requested item${pbcRequirements(sample).length === 1 ? "" : "s"}`);
+    if (button.dataset.noteAction === "pin") {
+      note.pinned = !note.pinned;
+      addActivity(sample, note.pinned ? "Audit note pinned" : "Audit note unpinned", note.text.slice(0, 100));
+    } else {
+      sample.auditNotes = sample.auditNotes.filter((item) => item.id !== note.id);
+      addActivity(sample, "Audit note deleted", note.text.slice(0, 100));
+    }
     syncWorkingPaperSource(sample);
     saveState();
     renderAll();
+    showToast(button.dataset.noteAction === "delete" ? "Audit note deleted." : "Audit note pin updated.");
+  }
+
+  function createPbcRequest(generated = false, sampleOverride = null) {
+    const sample = sampleOverride || getSelectedSample();
+    if (!sample) return null;
+    if (generated && !pbcRequirements(sample).length) {
+      if (!sampleOverride) showToast("No PBC request is required for this sample.", "error");
+      return null;
+    }
+    const timestamp = activityTimestamp();
+    const request = {
+      id: nextRecordId("PBC", sample, sample.pbcRequests),
+      text: generated ? buildPbcText(sample) : `PBC REQUEST — REVENUE SAMPLE ${sample.id}\n\nPlease provide the requested supporting documentation.`,
+      sampleId: sample.id,
+      evidenceRefs: relatedEvidenceRefs(sample),
+      dueDate: "",
+      status: "Draft",
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    sample.pbcRequests.push(request);
+    addActivity(sample, generated ? "PBC request generated" : "PBC request created", request.id);
+    syncWorkingPaperSource(sample);
+    if (!sampleOverride) appState.pbcEditing = true;
+    return request;
+  }
+
+  function generatePbcRequest() {
+    const request = createPbcRequest(true);
+    if (!request) return;
+    saveState();
+    renderAll();
     showToast("PBC request generated.");
+  }
+
+  function createBlankPbcRequest() {
+    const request = createPbcRequest(false);
+    if (!request) return;
+    saveState();
+    renderAll();
+    showToast("PBC request created.");
   }
 
   async function copyText(value) {
@@ -932,8 +1221,9 @@
 
   async function copyPbcRequest() {
     const sample = getSelectedSample();
-    if (!sample?.pbcRequest) return;
-    await copyText(sample.pbcRequest);
+    const request = sample ? latestPbc(sample) : null;
+    if (!request?.text) return;
+    await copyText(request.text);
     addActivity(sample, "PBC request copied");
     saveState();
     renderActivityLog(sample);
@@ -942,37 +1232,25 @@
 
   function updatePbcStatus(status) {
     const sample = getSelectedSample();
-    if (!sample || !sample.pbcRequest) return;
-    if (status === "Received" && sample.pbcStatus !== "Sent") {
+    const request = sample ? latestPbc(sample) : null;
+    if (!sample || !request) return;
+    if (status === "Received" && !["Sent", "Overdue"].includes(request.status)) {
       showToast("Mark the request sent before marking it received.", "error");
       return;
     }
-    sample.pbcStatus = status;
-    sample.pbcAddressed = status === "Received";
+    request.status = status;
+    request.updatedAt = activityTimestamp();
     appState.pbcEditing = false;
     if (status === "Sent") sample.taskStatus = "Waiting for Client";
-    else if (sample.taskStatus === "Waiting for Client") sample.taskStatus = "In Progress";
-    addActivity(sample, `PBC marked ${status.toLowerCase()}`);
+    else if (["Received", "Closed"].includes(status) && sample.taskStatus === "Waiting for Client") sample.taskStatus = "In Progress";
+    addActivity(sample, `PBC marked ${status.toLowerCase()}`, request.id);
     syncWorkingPaperSource(sample);
     saveState();
     renderAll();
     showToast(`PBC request marked ${status.toLowerCase()}.`);
   }
 
-  function markPbcNotRequired() {
-    const sample = getSelectedSample();
-    if (!sample) return;
-    sample.pbcRequest = "";
-    sample.pbcStatus = "Not Required";
-    sample.pbcAddressed = true;
-    appState.pbcEditing = false;
-    if (sample.taskStatus === "Waiting for Client") sample.taskStatus = "In Progress";
-    addActivity(sample, "PBC marked not required", pbcRequirements(sample).length ? "Associate override recorded; support requirements remain visible in risk results." : "No additional client support required.");
-    syncWorkingPaperSource(sample);
-    saveState();
-    renderAll();
-    showToast("PBC status updated to not required.");
-  }
+  function closePbcRequest() { updatePbcStatus("Closed"); }
 
   function generateWorkingPaper() {
     const sample = getSelectedSample();
@@ -999,10 +1277,30 @@
     sample.workingPaperStale = false;
     sample.workingPaperSaved = Boolean(sample.workingPaperDraft);
     appState.workpaperEditing = false;
-    addActivity(sample, "Working paper saved");
+    if (sample.workingPaperDraft) {
+      const version = { version: sample.workingPaperVersions.length + 1, timestamp: activityTimestamp(), note: byId("workpaperVersionNote").value.trim() || "Saved working paper version", content: sample.workingPaperDraft };
+      sample.workingPaperVersions.push(version);
+      addActivity(sample, "Working paper version saved", `Version ${version.version}: ${version.note}`);
+    }
     saveState();
     renderAll();
     showToast("Working paper saved locally.");
+  }
+
+  function restoreWorkingPaperVersion(versionNumber) {
+    const sample = getSelectedSample();
+    const version = sample?.workingPaperVersions.find((item) => item.version === Number(versionNumber));
+    if (!sample || !version) return;
+    sample.workingPaperDraft = version.content;
+    sample.workingPaperStatus = "Draft";
+    sample.workingPaperSaved = true;
+    sample.workingPaperCustomized = true;
+    sample.workingPaperStale = false;
+    appState.workpaperEditing = false;
+    addActivity(sample, "Working paper version restored", `Version ${version.version}`);
+    saveState();
+    renderAll();
+    showToast(`Working paper version ${version.version} restored.`);
   }
 
   function markReadyForManager() {
@@ -1021,7 +1319,8 @@
     sample.workingPaperSaved = true;
     appState.workpaperEditing = false;
     sample.taskStatus = "Ready for Manager Review";
-    addActivity(sample, "Working paper submitted", "Ready for manager review");
+    sample.reviewStatus = "Submitted";
+    addActivity(sample, "Manager review submitted", "Ready for manager review");
     saveState();
     renderAll();
     showToast("Working paper routed for manager review.");
@@ -1045,18 +1344,15 @@
       text,
       response: "",
       responseAt: "",
-      resolved: false,
+      status: "Open",
       createdAt: new Date().toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
     });
     addActivity(sample, "Manager comment added", text.slice(0, 120));
-    saveState();
     byId("managerCommentInput").value = "";
     byId("managerCommentComposer").hidden = true;
-    renderManagerReview(sample);
     syncWorkingPaperSource(sample);
     saveState();
-    renderWorkingPaperEditor(sample);
-    renderActivityLog(sample);
+    renderAll();
     showToast("Manager review comment saved.");
   }
 
@@ -1068,15 +1364,60 @@
       showToast("Save an associate response before resolving the comment.", "error");
       return;
     }
-    comment.resolved = true;
+    comment.status = "Resolved";
     addActivity(sample, "Manager comment resolved", comment.text.slice(0, 120));
-    saveState();
-    renderManagerReview(sample);
     syncWorkingPaperSource(sample);
     saveState();
-    renderWorkingPaperEditor(sample);
-    renderActivityLog(sample);
+    renderAll();
     showToast("Manager review comment resolved.");
+  }
+
+  function reopenManagerComment(commentId) {
+    const sample = getSelectedSample();
+    const comment = sample?.managerComments.find((item) => item.id === commentId);
+    if (!comment) return;
+    comment.status = "Reopened";
+    addActivity(sample, "Manager comment reopened", comment.text.slice(0, 120));
+    syncWorkingPaperSource(sample);
+    saveState();
+    renderAll();
+    showToast("Manager review comment reopened.");
+  }
+
+  function returnForRevision() {
+    const sample = getSelectedSample();
+    if (!sample || sample.reviewStatus !== "Submitted") {
+      showToast("Submit the sample before returning it for revision.", "error");
+      return;
+    }
+    sample.reviewStatus = "Returned for Revision";
+    sample.taskStatus = "Returned for Revision";
+    sample.workingPaperStatus = "Draft";
+    sample.workingPaperSaved = false;
+    addActivity(sample, "Manager review returned", "Returned for revision");
+    saveState();
+    renderAll();
+    showToast("Sample returned for revision.");
+  }
+
+  function approveManagerReview() {
+    const sample = getSelectedSample();
+    if (!sample || sample.reviewStatus !== "Submitted") {
+      showToast("Submit the sample before manager approval.", "error");
+      return;
+    }
+    if (managerReviewSummary(sample).open.length) {
+      showToast("Resolve open manager comments before approval.", "error");
+      return;
+    }
+    sample.reviewStatus = "Approved";
+    sample.taskStatus = "Reviewed";
+    sample.workingPaperStatus = "Reviewed";
+    sample.workingPaperSaved = true;
+    addActivity(sample, "Manager review approved");
+    saveState();
+    renderAll();
+    showToast("Manager review approved.");
   }
 
   function saveAssociateResponse(commentId) {
@@ -1093,9 +1434,7 @@
     addActivity(sample, "Associate response saved", response.slice(0, 120));
     syncWorkingPaperSource(sample);
     saveState();
-    renderManagerReview(sample);
-    renderWorkingPaperEditor(sample);
-    renderActivityLog(sample);
+    renderAll();
     showToast("Associate response saved.");
   }
 
@@ -1103,7 +1442,6 @@
     const sample = getSelectedSample();
     if (!sample) return;
     sample.exceptionDecision = decision;
-    if (decision === "Follow-up Required") sample.pbcAddressed = false;
     if (decision === "Exception Noted") sample.taskStatus = "Exception Noted";
     else if (["Exception Noted", "Ready for Manager Review", "Reviewed"].includes(sample.taskStatus)) sample.taskStatus = "In Progress";
     addActivity(sample, `Exception decision: ${decision}`);
@@ -1130,16 +1468,18 @@
 
   function updatePbcDraft() {
     const sample = getSelectedSample();
-    if (!sample) return;
-    sample.pbcRequest = byId("pbcRequestText").value;
-    sample.pbcStatus = pbcRequirements(sample).length ? "Drafted" : "Not Required";
-    sample.pbcAddressed = false;
+    const request = sample ? latestPbc(sample) : null;
+    if (!sample || !request) return;
+    request.text = byId("pbcRequestText").value;
+    request.dueDate = byId("pbcDueDate").value;
+    request.status = "Draft";
+    request.updatedAt = activityTimestamp();
     syncWorkingPaperSource(sample);
     saveState();
-    byId("pbcStatusBadge").textContent = sample.pbcStatus;
-    byId("pbcStatusBadge").className = `workflow-badge ${slug(sample.pbcStatus)}`;
-    byId("copyPbcButton").disabled = !sample.pbcRequest.trim();
-    byId("markPbcSentButton").disabled = !sample.pbcRequest.trim();
+    byId("pbcStatusBadge").textContent = request.status;
+    byId("pbcStatusBadge").className = `workflow-badge ${slug(request.status)}`;
+    byId("copyPbcButton").disabled = !request.text.trim();
+    byId("markPbcSentButton").disabled = !request.text.trim();
     byId("markPbcReceivedButton").disabled = true;
     renderWorkingPaperEditor(sample);
     renderReadiness(sample);
@@ -1148,10 +1488,12 @@
 
   function togglePbcEditing() {
     const sample = getSelectedSample();
-    if (!sample || !sample.pbcRequest) return;
+    const request = sample ? latestPbc(sample) : null;
+    if (!sample || !request) return;
     appState.pbcEditing = !appState.pbcEditing;
     if (!appState.pbcEditing) {
-      addActivity(sample, "PBC request edited");
+      request.updatedAt = activityTimestamp();
+      addActivity(sample, "PBC request edited", request.id);
       saveState();
       renderActivityLog(sample);
     }
@@ -1169,6 +1511,121 @@
     showToast("Working paper unlocked for editing.");
   }
 
+  function nextSampleId() {
+    const highest = samples.reduce((max, sample) => Math.max(max, Number(sample.id.replace(/\D/g, "")) || 0), 0);
+    return `REV-${String(highest + 1).padStart(3, "0")}`;
+  }
+
+  function openSampleForm(mode) {
+    const sample = getSelectedSample();
+    if (mode === "edit" && !sample) return;
+    appState.sampleFormMode = mode;
+    byId("sampleFormTitle").textContent = mode === "edit" ? `Edit ${sample.id}` : "Add New Revenue Sample";
+    const values = mode === "edit" ? sample : {};
+    const fields = {
+      sampleCustomer: values.customer || "", sampleInvoiceNumber: values.invoiceNumber || "",
+      sampleInvoiceAmount: values.invoiceAmount ?? "", sampleGlAmount: values.glAmount ?? "",
+      sampleInvoiceDate: values.invoiceDate || "", sampleRevenueDate: values.revenueDate || "",
+      sampleShippingDate: values.shippingDate || "", sampleCashReceiptDate: values.cashReceiptDate || ""
+    };
+    Object.entries(fields).forEach(([id, value]) => { byId(id).value = value; });
+    byId("sampleFormModal").hidden = false;
+    byId("sampleCustomer").focus();
+  }
+
+  function closeSampleForm() {
+    appState.sampleFormMode = null;
+    byId("sampleFormModal").hidden = true;
+  }
+
+  function createEmptyEvidence(sampleId) {
+    const suffix = sampleId.replace(/\D/g, "").padStart(3, "0");
+    return Object.fromEntries(Object.entries(evidenceDefinitions).map(([key, definition]) => [key, { label: definition.label, status: "Not Received", ref: `${definition.prefix}-${suffix}`, fileName: "", receivedDate: "", tickmark: "M Missing", note: "" }]));
+  }
+
+  function saveSampleForm() {
+    const mode = appState.sampleFormMode;
+    const requiredIds = ["sampleCustomer", "sampleInvoiceNumber", "sampleInvoiceAmount", "sampleGlAmount", "sampleInvoiceDate", "sampleRevenueDate", "sampleShippingDate", "sampleCashReceiptDate"];
+    if (requiredIds.some((id) => !String(byId(id).value).trim())) {
+      showToast("Complete every transaction field before saving the sample.", "error");
+      return;
+    }
+    const transaction = {
+      customer: byId("sampleCustomer").value.trim(), invoiceNumber: byId("sampleInvoiceNumber").value.trim(),
+      invoiceAmount: Number(byId("sampleInvoiceAmount").value), glAmount: Number(byId("sampleGlAmount").value),
+      invoiceDate: byId("sampleInvoiceDate").value, revenueDate: byId("sampleRevenueDate").value,
+      shippingDate: byId("sampleShippingDate").value, cashReceiptDate: byId("sampleCashReceiptDate").value
+    };
+    if (mode === "edit") {
+      const sample = getSelectedSample();
+      Object.assign(sample, transaction, { invoice: transaction.invoiceNumber, recognitionDate: transaction.revenueDate });
+      refreshGeneratedArtifacts(sample);
+      addActivity(sample, "Sample edited", "Transaction attributes updated");
+    } else {
+      const id = nextSampleId();
+      const sample = {
+        id, ...transaction, invoice: transaction.invoiceNumber, recognitionDate: transaction.revenueDate,
+        selectionBasis: "User-created sample", owner: engagement.preparer.initials, taskStatus: "Not Started",
+        evidence: createEmptyEvidence(id), exceptionDecision: "Not Assessed", managementExplanation: "", proposedResolution: "",
+        pbcRequests: [], auditNotes: [], draftAuditNote: "", exceptions: [], workingPaperDraft: "", workingPaperStatus: "Not Started",
+        workingPaperSaved: false, workingPaperVersions: [], workingPaperCustomized: false, workingPaperStale: false,
+        reviewStatus: "Not Submitted", managerComments: [], activityLog: []
+      };
+      sample.risk = assessRisk(sample);
+      addActivity(sample, "Sample created", `${sample.id} · ${sample.customer}`);
+      samples.push(sample);
+      appState.selectedSampleId = sample.id;
+      appState.activeFilter = "All";
+    }
+    closeSampleForm();
+    saveState();
+    renderAll();
+    showToast(mode === "edit" ? "Sample changes saved." : "Revenue sample created.");
+  }
+
+  function deleteSelectedSample() {
+    const sample = getSelectedSample();
+    if (samples.length === 1) {
+      showToast("At least one sample must remain in the engagement.", "error");
+      return;
+    }
+    if (!sample || !window.confirm(`Delete ${sample.id}? This removes its locally saved review data.`)) return;
+    const index = samples.findIndex((item) => item.id === sample.id);
+    samples.splice(index, 1);
+    appState.selectedBulkSampleIds = appState.selectedBulkSampleIds.filter((id) => id !== sample.id);
+    appState.selectedSampleId = samples[Math.min(index, samples.length - 1)]?.id || null;
+    const next = getSelectedSample();
+    if (next) addActivity(next, "Sample deleted", `${sample.id} · ${sample.customer}`);
+    saveState();
+    renderAll();
+    showToast("Sample deleted.");
+  }
+
+  function resetSelectedSampleReview() {
+    const sample = getSelectedSample();
+    if (!sample || !window.confirm(`Reset all review work for ${sample.id}? Transaction details will be retained.`)) return;
+    sample.taskStatus = "Not Started";
+    sample.evidence = createEmptyEvidence(sample.id);
+    sample.exceptionDecision = "Not Assessed";
+    sample.managementExplanation = "";
+    sample.proposedResolution = "";
+    sample.pbcRequests = [];
+    sample.auditNotes = [];
+    sample.exceptions = [];
+    sample.workingPaperDraft = "";
+    sample.workingPaperStatus = "Not Started";
+    sample.workingPaperSaved = false;
+    sample.workingPaperVersions = [];
+    sample.managerComments = [];
+    sample.reviewStatus = "Not Submitted";
+    sample.activityLog = [];
+    sample.risk = assessRisk(sample);
+    addActivity(sample, "Sample review reset");
+    saveState();
+    renderAll();
+    showToast("Sample review reset.");
+  }
+
   function openSample(sampleId) {
     const sample = samples.find((item) => item.id === sampleId);
     if (!sample) return;
@@ -1176,6 +1633,9 @@
     appState.selectedSampleId = sampleId;
     appState.pbcEditing = false;
     appState.workpaperEditing = false;
+    appState.editingNoteId = null;
+    appState.editingExceptionId = null;
+    resetExceptionForm();
     saveState();
     renderSamplesView();
     byId("sampleDetail").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1219,6 +1679,8 @@
       showToast("Generate a working paper before exporting it.", "error");
       return;
     }
+    addActivity(sample, "Working paper export performed");
+    saveState();
     downloadFile(sample.workingPaperDraft, `${sample.id}-revenue-working-paper.txt`, "text/plain;charset=utf-8");
     showToast("Working paper exported.");
   }
@@ -1226,6 +1688,8 @@
   function exportActivityLog() {
     const sample = getSelectedSample();
     if (!sample) return;
+    addActivity(sample, "Activity log export performed");
+    saveState();
     const entries = sample.activityLog.length
       ? sample.activityLog.map((entry) => `${entry.timestamp} | ${entry.action}${entry.detail ? ` | ${entry.detail}` : ""}`).join("\n")
       : "No activity has been recorded for this sample.";
@@ -1237,8 +1701,61 @@
   function exportSampleReviewJson() {
     const sample = getSelectedSample();
     if (!sample) return;
+    addActivity(sample, "Sample JSON export performed");
+    saveState();
     downloadFile(JSON.stringify(sample, null, 2), `${sample.id}-sample-review.json`, "application/json;charset=utf-8");
     showToast("Sample review JSON exported.");
+  }
+
+  function exportEngagementSummary() {
+    const payload = { engagement, exportedAt: new Date().toISOString(), sampleCount: samples.length, samples };
+    samples.forEach((sample) => addActivity(sample, "Full engagement export performed"));
+    saveState();
+    downloadFile(JSON.stringify(payload, null, 2), "audit-evidence-copilot-engagement-summary.json", "application/json;charset=utf-8");
+    showToast("Full engagement summary exported.");
+  }
+
+  function toggleBulkSample(sampleId, selected) {
+    const ids = new Set(appState.selectedBulkSampleIds);
+    if (selected) ids.add(sampleId); else ids.delete(sampleId);
+    appState.selectedBulkSampleIds = [...ids];
+    saveState();
+    renderAll();
+  }
+
+  function bulkMarkInProgress() {
+    samples.filter((sample) => appState.selectedBulkSampleIds.includes(sample.id)).forEach((sample) => {
+      sample.taskStatus = "In Progress";
+      addActivity(sample, "Bulk status update", "Marked In Progress");
+    });
+    saveState();
+    renderAll();
+    showToast("Selected samples marked In Progress.");
+  }
+
+  function bulkGeneratePbc() {
+    let created = 0;
+    samples.filter((sample) => appState.selectedBulkSampleIds.includes(sample.id)).forEach((sample) => {
+      if (createPbcRequest(true, sample)) created += 1;
+    });
+    saveState();
+    renderAll();
+    showToast(created ? `${created} PBC request${created === 1 ? "" : "s"} generated.` : "No selected samples require a PBC request.", created ? "success" : "error");
+  }
+
+  function bulkExportJson() {
+    const selected = samples.filter((sample) => appState.selectedBulkSampleIds.includes(sample.id));
+    selected.forEach((sample) => addActivity(sample, "Bulk sample export performed"));
+    saveState();
+    downloadFile(JSON.stringify(selected, null, 2), "selected-revenue-sample-reviews.json", "application/json;charset=utf-8");
+    showToast("Selected sample JSON exported.");
+  }
+
+  function clearBulkSelection() {
+    appState.selectedBulkSampleIds = [];
+    saveState();
+    renderAll();
+    showToast("Bulk selection cleared.");
   }
 
   function handleCurrentTaskAction() {
@@ -1264,8 +1781,21 @@
     byId("searchInput").addEventListener("input", (event) => { appState.searchTerm = event.target.value; renderSamplesView(); });
     byId("clearFilters").addEventListener("click", resetFilters);
     byId("sampleTableBody").addEventListener("click", (event) => {
+      if (event.target.matches(".bulk-sample-checkbox")) return;
       const target = event.target.closest("[data-open-sample], tr[data-sample-id]");
       if (target) openSample(target.dataset.openSample || target.dataset.sampleId);
+    });
+    byId("sampleTableBody").addEventListener("change", (event) => {
+      const checkbox = event.target.closest("[data-bulk-sample-id]");
+      if (checkbox) toggleBulkSample(checkbox.dataset.bulkSampleId, checkbox.checked);
+    });
+    byId("selectAllSamples").addEventListener("change", (event) => {
+      const visibleIds = filteredSamples().map((sample) => sample.id);
+      const selected = new Set(appState.selectedBulkSampleIds);
+      visibleIds.forEach((id) => event.target.checked ? selected.add(id) : selected.delete(id));
+      appState.selectedBulkSampleIds = [...selected];
+      saveState();
+      renderAll();
     });
     byId("sampleTableBody").addEventListener("keydown", (event) => {
       if (["Enter", " "].includes(event.key) && event.target.matches("tr[data-sample-id]")) {
@@ -1286,20 +1816,28 @@
       if (button) setExceptionDecision(button.dataset.exceptionDecision);
     });
     byId("evidenceList").addEventListener("change", handleEvidenceChange);
+    byId("evidenceList").addEventListener("click", handleEvidenceAction);
     byId("evidenceList").addEventListener("focusout", (event) => {
-      if (event.target.matches("[data-evidence-note-key]")) handleEvidenceChange(event);
+      if (event.target.matches("[data-evidence-note-key], [data-evidence-field-key]")) handleEvidenceChange(event);
     });
     byId("saveNoteButton").addEventListener("click", saveAuditNote);
     byId("clearNoteButton").addEventListener("click", clearAuditNote);
+    byId("savedNotesList").addEventListener("click", handleNoteAction);
     byId("saveAssessmentButton").addEventListener("click", saveExceptionAssessment);
+    byId("saveTrackedExceptionButton").addEventListener("click", saveTrackedException);
+    byId("cancelTrackedExceptionButton").addEventListener("click", resetExceptionForm);
+    byId("exceptionTrackerList").addEventListener("click", handleExceptionRecordAction);
+    byId("createPbcButton").addEventListener("click", createBlankPbcRequest);
     byId("generatePbcButton").addEventListener("click", generatePbcRequest);
     byId("editPbcButton").addEventListener("click", togglePbcEditing);
     byId("jumpToPbcButton").addEventListener("click", () => byId("pbcRequestPanel").scrollIntoView({ behavior: "smooth", block: "center" }));
     byId("copyPbcButton").addEventListener("click", copyPbcRequest);
     byId("markPbcSentButton").addEventListener("click", () => updatePbcStatus("Sent"));
     byId("markPbcReceivedButton").addEventListener("click", () => updatePbcStatus("Received"));
-    byId("markPbcNotRequiredButton").addEventListener("click", markPbcNotRequired);
+    byId("markPbcOverdueButton").addEventListener("click", () => updatePbcStatus("Overdue"));
+    byId("closePbcButton").addEventListener("click", closePbcRequest);
     byId("pbcRequestText").addEventListener("input", updatePbcDraft);
+    byId("pbcDueDate").addEventListener("change", updatePbcDraft);
     ["generatePaperButton", "generateFromDetail"].forEach((id) => byId(id).addEventListener("click", generateWorkingPaper));
     byId("workingPaperEditor").addEventListener("input", () => {
       const sample = getSelectedSample();
@@ -1315,6 +1853,16 @@
     byId("exportWorkingPaperButton").addEventListener("click", exportWorkingPaper);
     byId("exportActivityLogButton").addEventListener("click", exportActivityLog);
     byId("exportSampleJsonButton").addEventListener("click", exportSampleReviewJson);
+    byId("exportEngagementButton").addEventListener("click", exportEngagementSummary);
+    document.querySelector(".export-center-actions").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-export-center]");
+      if (!button) return;
+      ({ workpaper: exportWorkingPaper, activity: exportActivityLog, sample: exportSampleReviewJson }[button.dataset.exportCenter])();
+    });
+    byId("workpaperVersionHistory").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-restore-version]");
+      if (button) restoreWorkingPaperVersion(button.dataset.restoreVersion);
+    });
     byId("addManagerCommentButton").addEventListener("click", addManagerComment);
     byId("saveManagerCommentButton").addEventListener("click", saveManagerComment);
     byId("cancelManagerCommentButton").addEventListener("click", () => {
@@ -1329,7 +1877,21 @@
       }
       const button = event.target.closest("[data-resolve-comment]");
       if (button) resolveManagerComment(button.dataset.resolveComment);
+      const reopen = event.target.closest("[data-reopen-comment]");
+      if (reopen) reopenManagerComment(reopen.dataset.reopenComment);
     });
+    byId("returnForRevisionButton").addEventListener("click", returnForRevision);
+    byId("approveReviewButton").addEventListener("click", approveManagerReview);
+    byId("addSampleButton").addEventListener("click", () => openSampleForm("add"));
+    byId("editSampleButton").addEventListener("click", () => openSampleForm("edit"));
+    byId("deleteSampleButton").addEventListener("click", deleteSelectedSample);
+    byId("resetSampleButton").addEventListener("click", resetSelectedSampleReview);
+    byId("saveSampleFormButton").addEventListener("click", saveSampleForm);
+    ["cancelSampleFormButton", "closeSampleFormButton"].forEach((id) => byId(id).addEventListener("click", closeSampleForm));
+    byId("bulkMarkInProgressButton").addEventListener("click", bulkMarkInProgress);
+    byId("bulkGeneratePbcButton").addEventListener("click", bulkGeneratePbc);
+    byId("bulkExportJsonButton").addEventListener("click", bulkExportJson);
+    byId("bulkClearButton").addEventListener("click", clearBulkSelection);
     byId("riskMethodButton").addEventListener("click", () => {
       const method = byId("riskMethod");
       method.hidden = !method.hidden;

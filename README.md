@@ -1,12 +1,12 @@
 # Audit Evidence Copilot
 
-Audit Evidence Copilot is a task-driven revenue testing workbench built with semantic HTML, modern CSS, and vanilla JavaScript. It simulates the end-to-end work of an Audit Associate: select a sample, inspect support, document judgment, follow up with the client, prepare a working paper, and clear manager review points.
+Audit Evidence Copilot is an interactive audit operations platform prototype built with semantic HTML, modern CSS, and vanilla JavaScript. It simulates the end-to-end work of an Audit Associate: create revenue samples, attach and test evidence, manage exceptions and PBC requests, version working papers, submit for manager review, clear review points, and export documentation.
 
 > All companies, people, transactions, and evidence references are fictional.
 
 ## Project Overview
 
-The prototype models a year-end revenue test of details for a fictional technology issuer under ASC 606. Ten synthetic transactions move through one persistent preparer/reviewer workflow. The selected sample record drives every panel, so evidence, risk, exceptions, PBC requests, conclusions, workpapers, and review comments remain traceable to the same transaction.
+The prototype models a year-end revenue test of details for a fictional technology issuer under ASC 606. Ten initial synthetic transactions—and user-created samples—move through one persistent preparer/reviewer workflow. The selected sample record drives every panel, so attachments, risk, exceptions, PBC requests, notes, working-paper versions, and review comments remain traceable to the same transaction.
 
 The application has no dependencies or build step. Open `index.html` and the complete workbench runs locally in the browser.
 
@@ -26,6 +26,39 @@ Audit quality depends on traceability: the support inspected, tickmarks applied,
 - Seniors monitoring sample progress, evidence sufficiency, and exceptions.
 - Managers reviewing conclusions, proposed resolutions, and open review points.
 - Recruiters and engineering interviewers evaluating audit-domain product thinking.
+
+## Platform Features
+
+- Create, edit, delete, and reset revenue sample records.
+- Simulate evidence attachments with file names, references, received dates, statuses, tickmarks, and notes.
+- Manage multiple PBC requests, audit notes, tracked exceptions, workpaper versions, and manager comments per sample.
+- Apply bulk status, PBC generation, and JSON export actions across selected samples.
+- Monitor engagement alerts, operational metrics, readiness checks, and recommended next actions.
+- Export selected or full-engagement documentation using browser-side Blob downloads.
+
+## Sample Management
+
+The sample form captures customer, invoice number, invoice and GL amounts, invoice date, revenue-recognition date, shipping date, and cash-receipt date. Creating or editing a sample immediately recalculates risk and assertion impacts. Deletion requires confirmation, while Reset Review preserves transaction attributes and clears locally simulated fieldwork.
+
+## Evidence Attachment Workflow
+
+Each sample owns five evidence records: Invoice, Sales Contract, Shipping Document, Cash Receipt, and GL Detail. Associates can enter a simulated file name and reference ID, record a received date, attach evidence, and mark it Received, Reviewed, Exception, or Removed. No real file is uploaded. Evidence actions update risk, PBC requirements, workpaper source data, and the audit trail.
+
+## PBC Request Management
+
+Samples can contain multiple PBC requests with an ID, request text, related evidence references, due date, status, and created/updated timestamps. Requests move through Draft, Sent, Received, Overdue, and Closed. Drafts can be created manually or generated from missing evidence, automated risk indicators, and tracked exceptions.
+
+## Audit Notes
+
+The multi-note audit log supports Testing Note, Client Explanation, Reviewer Note, Follow-up Note, and Conclusion Note categories. Notes can be added, edited, pinned, unpinned, and deleted. Pinned notes sort first, and every saved note flows into the working paper and activity history.
+
+## Exception Management
+
+The exception tracker records exception type, assertion, dollar impact, materiality comparisons, root cause, management explanation, proposed resolution, and status. Exceptions can be created, edited, resolved, and reopened. Dashboard metrics distinguish open, resolved, and high-impact exceptions.
+
+## Working Paper Versioning
+
+Generated workpapers remain editable and cite evidence references, tickmarks, tracked exceptions, PBC requests, notes, conclusions, and review state. Saving creates a numbered version with a timestamp and version note. Any previous version can be restored without deleting version history.
 
 ## Task-Driven Audit Workflow
 
@@ -69,33 +102,38 @@ Each evidence record also retains a tickmark—✓ Agreed, M Missing, E Exceptio
 
 ## PBC Workflow
 
-Client requests are generated only from the active sample’s unresolved support and risk conditions. The editable request can be copied and moved through Not Required, Drafted, Sent, and Received. PBC actions update the dashboard, sample row, working-paper source, and activity trail; the prototype records state locally and sends no communication.
+Client requests can be created manually or generated from unresolved support, risk conditions, and tracked exceptions. Each editable request moves through Draft, Sent, Received, Overdue, and Closed. PBC actions update dashboard metrics, alerts, the sample row, working-paper source, and activity trail; the prototype records state locally and sends no communication.
 
 ## Working Paper Workflow
 
-The generator creates a selected-sample revenue memo containing the objective, procedure, evidence status and references, exceptions, assertion impact, management explanation, proposed resolution, audit notes, conclusion, preparer, reviewer, and review status. Generated text remains editable. Manually customized drafts are preserved and flagged as stale when source data changes.
+The generator creates a selected-sample revenue memo containing the objective, procedure, evidence status and references, exceptions, assertion impact, management explanation, proposed resolution, audit notes, conclusion, preparer, reviewer, and review status. Generated text remains editable. Manually customized drafts are preserved and flagged as stale when source data changes; explicit saves create restorable versions.
 
 ## Manager Review Workflow
 
-Managers can add timestamped review comments. Associates can save a response, and a comment cannot be resolved without one. Open and resolved counts drive the manager conclusion, and final Reviewed status is blocked while review points remain open.
+Managers can add timestamped review comments, return a submitted sample for revision, or approve it. Associates can save responses, and comments can be resolved or reopened. Approval is blocked while review points remain open.
 
-## Manager Review Readiness Gate
+## Readiness Gate
 
-Submission is controlled by a derived seven-item checklist: review started, evidence review completed, exception decision completed, audit note saved, PBC addressed when applicable, working paper generated, and working paper saved. Each check displays Completed, Missing, or Not applicable. The sample cannot move to Ready for Manager Review until all required checks pass.
+Submission is controlled by a derived checklist: review started, evidence statuses assessed, exception decision completed, PBC requests addressed when applicable, working paper saved, and open critical exceptions documented. Each check displays Completed, Missing, or Not applicable. The sample cannot move to Submitted until all required checks pass.
 
-## Export Features
+## Bulk Actions
+
+Checkbox selection supports marking multiple samples In Progress, generating PBC requests for selected samples with outstanding requirements, exporting selected sample state as JSON, and clearing the selection. Each affected sample retains its own activity-log entry.
+
+## Export Center
 
 The selected sample can be exported entirely in the browser:
 
 - Working paper as a `.txt` file.
 - Timestamped activity log as a `.txt` file.
 - Full sample review state—including evidence tickmarks and notes, PBC, workpaper, manager comments, and activity history—as formatted `.json`.
+- Full engagement summary, including every sample’s operational state, as formatted `.json`.
 
 Exports use the browser Blob API. No data is transmitted to a server.
 
 ## LocalStorage Persistence
 
-A single `appState` object is the source of truth and is stored under `auditEvidenceCopilotState`. It contains the selected sample, all ten sample records, task status, evidence lifecycle, references, tickmarks, evidence notes, exception assessment, audit notes, PBC state, working-paper draft, review comments, and activity history. Invalid or partial saved state falls back to the ten default samples, and earlier prototype keys are migrated and removed.
+A single `appState` object is the source of truth and is stored under `auditEvidenceCopilotState`. It contains selection state and the samples array; each sample owns transaction details, task status, evidence attachments, PBC requests, audit notes, exceptions, working-paper versions, manager-review state, comments, and activity history. Invalid or partial saved state falls back to the ten default samples, and earlier prototype keys are migrated and removed.
 
 To reset the demonstration, clear local site data for the file or remove `auditEvidenceCopilotState` in browser developer tools.
 
